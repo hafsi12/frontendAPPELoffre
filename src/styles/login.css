@@ -1,0 +1,159 @@
+.navbar-nav {
+    flex-direction: row; /* les elements sont en lighe */
+  }
+  
+  .nav-link {
+    margin: 0 30px; /* Espacement entre les liens */
+  }
+  
+  
+  .cn_btn {
+    background: linear-gradient(90deg, #008080, #C9A13C, #008080); 
+    background-size: 300% 300%; 
+    color: #fff;
+    border: none !important;
+    transition: color 0.3s ease; 
+  }
+  
+  .cn_btn:hover {
+    animation: gradient-flow 3s infinite; 
+    color: #fff; 
+  }
+  
+  /* Define the gradient flow animation */
+  @keyframes gradient-flow {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+  
+  
+  
+  .tl2_st{
+  
+    font-family: 'segoe print';
+    font-size: 20px;
+    font-weight: bold;
+    color: #576565;
+  
+  }
+  
+  .tl3_st{
+  
+    font-family: 'segoe print';
+    font-size: 30px;
+    font-weight: bold;
+    color: #576565;
+  
+  }
+  
+  
+  
+  .mrg {
+    margin-top: 10px; /* Adjust the value as needed */
+    
+  }
+  
+  .mrg2 {
+    margin-top: 50px; /* Adjust the value as needed */
+    
+  }
+  
+  .hero-section { /* New class for the blue section */
+    background: linear-gradient(135deg, #F5F5DC 0%,#6487c752 100%) !important; /* Your preferred blue */
+    padding: 40px 0; /* Add some padding for better spacing */
+    min-height: 500px; 
+  }
+  
+  
+  
+  
+  .card {
+      color: #fff!important;
+      border-radius: 20px !important;
+      border: none !important;
+      position: relative;
+      display: flex;
+      margin-bottom: 70px;
+      box-shadow: 0 0.46875rem 2.1875rem rgba(90,97,105,0.1), 0 0.9375rem 1.40625rem rgba(90,97,105,0.1), 0 0.25rem 0.53125rem rgba(90,97,105,0.12), 0 0.125rem 0.1875rem rgba(90,97,105,0.1);
+  }
+  .l-bg {
+      background: linear-gradient(to right, #040404c5, rgb(62, 85, 83)) !important;
+      color: #fff;
+  }
+  
+  
+  .l-bg-green {
+      background: linear-gradient(135deg, #0aad9c 40%, #C9A13C 100%) !important;
+      color: #fff;
+  }
+  
+  .ht {
+    color: #576565;
+    font-family: 'segoe print', sans-serif;
+    font-size: 32px;
+  }  
+  
+  
+  
+  
+  
+  .contact-section {
+    padding: 50px 0;
+    background: white;
+   
+  }
+  
+  
+  
+  .contact-section .form-control {
+    border-radius: 6px;
+    border: 1px solid #ccc;
+  }
+  
+  
+  
+  
+  .contact-form-container {
+    border: 1px solid #C9A13C; /* Glowing border */
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 0 15px #C9A13C;
+    transition: all 0.3s ease;
+   
+  }
+  
+  
+  
+  input:focus, select:focus {
+    border-color: #d9d2d2 !important;
+    box-shadow: 0 0 5px #918b8b!important;
+  }
+
+  
+  
+  .ft{
+  
+    color:  #C9A13C;
+    font-family: 'segoe print';
+    font-size: 18px;
+    font-weight: bold;
+    
+  }
+  
+  
+  
+  .centered-title {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%; /* Assurez-vous que la hauteur est définie pour centrer verticalement */
+    text-align: center; /* Centre le texte */
+  }
+  
