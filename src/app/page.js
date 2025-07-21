@@ -1,5 +1,4 @@
 "use client"
-
 import Opportunite from "../opportunite"
 
 export default function Page() {

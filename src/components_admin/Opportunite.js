@@ -1,5 +1,4 @@
 "use client"
-
 import { useState, useEffect } from "react"
 import Modal from "./modal"
 import "bootstrap/dist/css/bootstrap.min.css"
@@ -21,14 +20,14 @@ function Opportunite({ onNavigateToOffre }) {
     deadline: "",
     description: "",
     incomingClientId: null,
-    documents: [],
+    documents: [], // This will store metadata (title, description, fileType, path)
   })
   const [newDocument, setNewDocument] = useState({
     title: "",
     description: "",
     fileType: "PDF",
-    fileName: "",
-    file: null,
+    fileName: "", // This will store the original file name
+    file: null, // This will store the actual File object
   })
   const [error, setError] = useState(null)
 
@@ -83,8 +82,8 @@ function Opportunite({ onNavigateToOffre }) {
     if (name === "file" && files?.[0]) {
       setNewDocument((prev) => ({
         ...prev,
-        fileName: files[0].name,
-        file: files[0],
+        fileName: files[0].name, // Store original file name
+        file: files[0], // Store the actual File object
       }))
     } else {
       setNewDocument((prev) => ({ ...prev, [name]: value }))
@@ -92,17 +91,19 @@ function Opportunite({ onNavigateToOffre }) {
   }
 
   const handleAddDocument = () => {
-    if (newDocument.title && newDocument.fileName) {
+    if (newDocument.title && newDocument.fileName && newDocument.file) {
+      // Ensure file is present
       setFormData((prev) => ({
         ...prev,
         documents: [
           ...prev.documents,
           {
-            id: Date.now(),
+            id: Date.now(), // Temporary ID for frontend list, will be null for backend
             title: newDocument.title,
             description: newDocument.description,
             fileType: newDocument.fileType,
-            path: newDocument.fileName,
+            path: newDocument.fileName, // Use original file name as path for now, backend will update
+            file: newDocument.file, // Keep the actual file object for submission
           },
         ],
       }))
@@ -125,26 +126,39 @@ function Opportunite({ onNavigateToOffre }) {
 
   const handleAddOpportunity = async () => {
     try {
-      const requestData = {
+      const opportunityData = {
         projectName: formData.projectName,
         budget: formData.budget,
-        // Ensure deadline is formatted correctly for backend if it's a Date object
         deadline: formData.deadline ? new Date(formData.deadline).toISOString().split("T")[0] : null,
         description: formData.description,
         incomingClientId: formData.incomingClientId,
         etat: { statut: "EN_COURS" },
+        // Send only metadata for documents, the actual files will be in FormData
         documents: formData.documents.map((doc) => ({
+          id: doc.file ? null : doc.id, // Set ID to null for new files (those with a 'file' object)
           title: doc.title,
           description: doc.description,
           fileType: doc.fileType,
-          path: doc.path,
+          path: doc.path, // This will be the original filename for new, or stored path for existing
         })),
       }
+
+      const formDataToSend = new FormData()
+      formDataToSend.append("opportunite", JSON.stringify(opportunityData))
+
+      // Append actual file objects
+      formData.documents.forEach((doc) => {
+        if (doc.file) {
+          formDataToSend.append("files", doc.file, doc.fileName) // Append the File object with its original name
+        }
+      })
+
       const response = await fetch("http://localhost:8080/api/opportunites", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestData),
+        // Do NOT set Content-Type header for FormData, browser sets it automatically
+        body: formDataToSend,
       })
+
       if (!response.ok) {
         const errorText = await response.text()
         console.error("Server error response (text):", errorText)
@@ -158,6 +172,7 @@ function Opportunite({ onNavigateToOffre }) {
           )
         }
       }
+
       const data = await response.json()
       setOpportunities([...opportunities, data])
       resetForm()
@@ -170,26 +185,54 @@ function Opportunite({ onNavigateToOffre }) {
 
   const handleUpdateOpportunity = async () => {
     try {
-      const requestData = {
+      // Debugging logs
+      console.log("Attempting to update opportunity with ID:", selectedOpportunity?.idOpp)
+      console.log("Current selectedOpportunity state:", selectedOpportunity)
+
+      const opportunityData = {
         projectName: formData.projectName,
         budget: formData.budget,
         description: formData.description,
         incomingClientId: formData.incomingClientId,
-        idOpp: selectedOpportunity.idOpp,
-        // Format deadline to 'yyyy-MM-dd' for the backend
+        idOpp: selectedOpportunity.idOpp, // Ensure this ID is correct
         deadline: formData.deadline ? new Date(formData.deadline).toISOString().split("T")[0] : null,
+        // Send only metadata for documents, the actual files will be in FormData
         documents: formData.documents.map((doc) => ({
+          id: doc.file ? null : doc.id, // Set ID to null for new files (those with a 'file' object)
           title: doc.title,
           description: doc.description,
           fileType: doc.fileType,
-          path: doc.path,
+          path: doc.path, // This will be the stored filename for existing, or original for new
         })),
       }
-      const response = await fetch(`http://localhost:8080/api/opportunites/${selectedOpportunity.idOpp}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestData),
+
+      // Debugging log for data being sent
+      console.log("Opportunity data being sent:", opportunityData)
+
+      const formDataToSend = new FormData()
+      formDataToSend.append("opportunite", JSON.stringify(opportunityData))
+
+      // Append actual file objects for new/changed files
+      formData.documents.forEach((doc) => {
+        if (doc.file) {
+          // Only append if a new File object is present
+          formDataToSend.append("files", doc.file, doc.fileName)
+        }
       })
+
+      // Debugging log for files being sent
+      console.log(
+        "Files being sent:",
+        formData.documents.filter((doc) => doc.file).map((doc) => doc.fileName),
+      )
+
+      // IMPORTANT: Changed URL to use query parameter for ID as per backend change
+      const response = await fetch(`http://localhost:8080/api/opportunites?id=${selectedOpportunity.idOpp}`, {
+        method: "PUT",
+        // Do NOT set Content-Type header for FormData, browser sets it automatically
+        body: formDataToSend,
+      })
+
       if (!response.ok) {
         const errorText = await response.text()
         console.error("Server error response (text):", errorText)
@@ -203,11 +246,13 @@ function Opportunite({ onNavigateToOffre }) {
           )
         }
       }
+
       const data = await response.json()
       setOpportunities(opportunities.map((opp) => (opp.idOpp === data.idOpp ? data : opp)))
       resetForm()
       setActiveModalId(null)
-      setSelectedOpportunity(null)
+      // IMPORTANT: Update selectedOpportunity with the new data to stay on the details page
+      setSelectedOpportunity(data) // Keep this line to stay on the details page
     } catch (error) {
       console.error("Error updating opportunity:", error)
       setError("Erreur lors de la mise à jour de l'opportunité")
@@ -279,11 +324,12 @@ function Opportunite({ onNavigateToOffre }) {
     setFormData({
       projectName: opp.projectName,
       budget: opp.budget,
-      // Format deadline for the input type="date"
       deadline: opp.deadline ? new Date(opp.deadline).toISOString().split("T")[0] : "",
       description: opp.description,
       incomingClientId: opp.client?.idClient || null,
-      documents: opp.documents || [],
+      // When editing, documents from the backend already have their stored 'path'
+      // We need to ensure 'file' is null for existing documents unless a new file is selected
+      documents: opp.documents ? opp.documents.map((doc) => ({ ...doc, file: null })) : [],
     })
     setActiveModalId("editModal")
   }
@@ -435,7 +481,7 @@ function Opportunite({ onNavigateToOffre }) {
               <div className="card h-100 shadow-sm">
                 <div className="card-body">
                   <h5 className="card-title text-primary fw-bold">{item.label}</h5>
-                  <p className="card-text text-gray-800 font-semibold">{item.value}</p>
+                  <p className="card-text text-black font-semibold">{item.value}</p>
                 </div>
               </div>
             </div>
@@ -449,10 +495,10 @@ function Opportunite({ onNavigateToOffre }) {
                     selectedOpportunity.documents.map((doc, index) => (
                       <li key={`doc-${doc.id || index}`}>
                         <a
-                          href={doc.path}
+                          href={`http://localhost:8080/api/opportunites/documents/${doc.path}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-gray-800 font-semibold"
+                          className="text-black font-semibold"
                         >
                           📄 {doc.title} ({doc.fileType})
                         </a>
@@ -663,7 +709,7 @@ function Opportunite({ onNavigateToOffre }) {
                   type="button"
                   className="btn btn-primary btn-sm"
                   onClick={handleAddDocument}
-                  disabled={!newDocument.title || !newDocument.fileName}
+                  disabled={!newDocument.title || !newDocument.fileName || !newDocument.file} // Ensure file is selected
                 >
                   Ajouter document
                 </button>
@@ -781,7 +827,7 @@ function Opportunite({ onNavigateToOffre }) {
                   type="button"
                   className="btn btn-primary btn-sm"
                   onClick={handleAddDocument}
-                  disabled={!newDocument.title || !newDocument.fileName}
+                  disabled={!newDocument.title || !newDocument.fileName || !newDocument.file} // Ensure file is selected
                 >
                   Ajouter document
                 </button>
