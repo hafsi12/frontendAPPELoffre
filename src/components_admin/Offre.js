@@ -34,7 +34,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
     cheminFichier: "",
     file: null,
   })
-
   const fetchOffres = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -53,7 +52,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       setLoading(false)
     }
   }, [])
-
   const fetchOpportunitiesList = useCallback(async () => {
     try {
       const response = await fetch("http://localhost:8080/api/opportunites")
@@ -68,14 +66,12 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       setError("Erreur lors du chargement de la liste des opportunités: " + err.message)
     }
   }, [])
-
   useEffect(() => {
     fetchOpportunitiesList()
     if (currentView === "list") {
       fetchOffres()
     }
   }, [currentView, fetchOffres, fetchOpportunitiesList])
-
   const resetOffreForm = useCallback(() => {
     setOffreFormData({
       budget: "",
@@ -101,10 +97,8 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       file: null,
     })
   }, [initialOpportunity])
-
   // Removed the problematic useEffect that was resetting the form on every 'create' view entry.
   // The form will now only reset when explicitly told to (e.g., for a new offer).
-
   const handleOffreInputChange = (e) => {
     const { name, value, type, checked } = e.target
     setOffreFormData((prev) => ({
@@ -119,12 +113,10 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
             : value,
     }))
   }
-
   const handleTaskInputChange = (e) => {
     const { name, value } = e.target
     setNewTask((prev) => ({ ...prev, [name]: value }))
   }
-
   const handleDocumentInputChange = (e) => {
     const { name, value, files } = e.target
     if (name === "file" && files?.[0]) {
@@ -137,7 +129,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       setNewDocument((prev) => ({ ...prev, [name]: value }))
     }
   }
-
   const handleAddTache = () => {
     if (newTask.titre && newTask.detail && newTask.deadline && newTask.assignedPerson) {
       setOffreFormData((prev) => ({
@@ -149,14 +140,12 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       setError("Veuillez remplir tous les champs de la tâche avant de l'ajouter.")
     }
   }
-
   const handleRemoveTache = (id) => {
     setOffreFormData((prev) => ({
       ...prev,
       taches: prev.taches.filter((t) => t.id !== id),
     }))
   }
-
   const handleAddDocument = () => {
     if (newDocument.namefile && newDocument.cheminFichier && newDocument.file) {
       setOffreFormData((prev) => ({
@@ -174,14 +163,12 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       setError("Veuillez remplir tous les champs du document et sélectionner un fichier avant de l'ajouter.")
     }
   }
-
   const handleRemoveDocument = (id) => {
     setOffreFormData((prev) => ({
       ...prev,
       documents: prev.documents.filter((doc) => doc.id !== id),
     }))
   }
-
   const validateOffreForm = () => {
     setError(null)
     if (!offreFormData.budget || isNaN(Number(offreFormData.budget)) || Number(offreFormData.budget) <= 0) {
@@ -211,7 +198,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
     }
     return true
   }
-
   const submitOffreToBackend = async () => {
     setError(null)
     setLoading(true)
@@ -230,7 +216,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
           id: tache.id && tache.id > 1000000000000 ? null : tache.id,
         })),
       }
-
       const formData = new FormData()
       formData.append("offre", JSON.stringify(offreToSend))
       offreFormData.documents.forEach((doc) => {
@@ -238,22 +223,18 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
           formData.append("files", doc.file, doc.cheminFichier)
         }
       })
-
       const url = selectedOffre
         ? `http://localhost:8080/api/offres/${selectedOffre.idOffre}`
         : "http://localhost:8080/api/offres"
       const method = selectedOffre ? "PUT" : "POST"
-
       const response = await fetch(url, {
         method: method,
         body: formData,
       })
-
       if (!response.ok) {
         const errorData = await response.json()
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
       }
-
       const resultOffre = await response.json()
       if (selectedOffre) {
         setOffres((prev) => prev.map((o) => (o.idOffre === resultOffre.idOffre ? resultOffre : o)))
@@ -272,7 +253,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       setLoading(false)
     }
   }
-
   const handleDeleteOffre = async (id) => {
     setError(null)
     setLoading(true)
@@ -293,7 +273,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       setLoading(false)
     }
   }
-
   const handleStatusChange = async (id, newStatus) => {
     setError(null)
     setLoading(true)
@@ -317,12 +296,10 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       setLoading(false)
     }
   }
-
   const handleViewDetails = (offre) => {
     setSelectedOffre(offre)
     setCurrentView("details")
   }
-
   const handleEditOffre = (offre) => {
     setSelectedOffre(offre)
     setOffreFormData({
@@ -336,7 +313,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
     })
     setCurrentView("create")
   }
-
   const getStatusBadge = (status) => {
     switch (status) {
       case "GAGNEE":
@@ -349,7 +325,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
         return "bg-secondary"
     }
   }
-
   const getStatusIcon = (status) => {
     switch (status) {
       case "GAGNEE":
@@ -362,12 +337,10 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
         return "fas fa-question"
     }
   }
-
   const completedTasksCount = offreFormData.taches.filter((t) => t.checked).length
   const pendingTasksCount = offreFormData.taches.length - completedTasksCount
   const totalFileSize = offreFormData.documents.reduce((acc, doc) => acc + (doc.file?.size || 0), 0)
   const fileSizeInMB = (totalFileSize / (1024 * 1024)).toFixed(2)
-
   if (currentView === "list") {
     return (
       <div className="d-flex flex-column p-3 align-items-center" style={{ backgroundColor: "white" }}>
@@ -404,7 +377,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
               <div className="card-body">
                 <i className="fas fa-list-alt fa-2x text-primary mb-2"></i>
                 <h4 className="text-primary">{offres.length}</h4>
-                <p className="card-text">Total Offres</p>
+                <p className="card-text text-black">Total Offres</p>
               </div>
             </div>
           </div>
@@ -413,7 +386,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
               <div className="card-body">
                 <i className="fas fa-trophy fa-2x text-success mb-2"></i>
                 <h4 className="text-success">{offres.filter((o) => o.adjuge === "GAGNEE").length}</h4>
-                <p className="card-text">Gagnées</p>
+                <p className="card-text text-black">Gagnées</p>
               </div>
             </div>
           </div>
@@ -422,7 +395,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
               <div className="card-body">
                 <i className="fas fa-times-circle fa-2x text-danger mb-2"></i>
                 <h4 className="text-danger">{offres.filter((o) => o.adjuge === "PERDUE").length}</h4>
-                <p className="card-text">Perdues</p>
+                <p className="card-text text-black">Perdues</p>
               </div>
             </div>
           </div>
@@ -431,7 +404,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
               <div className="card-body">
                 <i className="fas fa-clock fa-2x text-warning mb-2"></i>
                 <h4 className="text-warning">{offres.filter((o) => o.adjuge === "EN_ATTENTE").length}</h4>
-                <p className="card-text">En Cours</p>
+                <p className="card-text text-black">En Cours</p>
               </div>
             </div>
           </div>
@@ -540,7 +513,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       </div>
     )
   }
-
   if (currentView === "details" && selectedOffre) {
     return (
       <div className="p-4">
@@ -936,7 +908,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       </div>
     )
   }
-
   return (
     <div className="d-flex flex-column p-3 align-items-center" style={{ backgroundColor: "white" }}>
       {error && (
