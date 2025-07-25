@@ -1,44 +1,477 @@
-import React, { useState } from "react";
-import "bootstrap/dist/css/bootstrap.min.css"; // Ensure Bootstrap is imported
-import "bootstrap/dist/js/bootstrap.bundle.min.js";
-import "../styles/dashboard.css"; // Import the CSS file
-import PieChart from "./pieChart";
+"use client"
 
-function Module() {
-  const [hoveredButton, setHoveredButton] = useState(null);
-  const [activeModalId, setActiveModalId] = useState(null);
-  const [expandedRows, setExpandedRows] = useState([]); // Tracks rows with expanded collapsibles
+import React, { useState, useEffect, useCallback, useRef } from "react"
+import "bootstrap/dist/css/bootstrap.min.css"
+import "bootstrap/dist/js/bootstrap.bundle.min.js"
+
+// Fonction utilitaire pour accéder aux propriétés imbriquées de manière sécurisée
+const safeGet = (obj, path, defaultValue = null) => {
+  try {
+    return path.split(".").reduce((current, key) => current && current[key], obj) || defaultValue
+  } catch (error) {
+    console.warn(`SafeGet error for path "${path}":`, error)
+    return defaultValue
+  }
+}
+
+const ContractManagement = () => {
+  const [contrats, setContrats] = useState([])
+  const [offresGagnees, setOffresGagnees] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [activeModalId, setActiveModalId] = useState(null)
+  const [selectedContrat, setSelectedContrat] = useState(null)
+  const [selectedOffre, setSelectedOffre] = useState(null)
+  const [hoveredButton, setHoveredButton] = useState(null)
+  const [expandedRows, setExpandedRows] = useState([])
+  const [emailStatus, setEmailStatus] = useState({})
+  const [showSignatureModal, setShowSignatureModal] = useState(false)
+  const [signature, setSignature] = useState("")
+  const [signerName, setSignerName] = useState("")
+  const [isDrawing, setIsDrawing] = useState(false)
+
+  // Refs pour le canvas de signature
+  const canvasRef = useRef(null)
+  const contextRef = useRef(null)
+
+  const [contratFormData, setContratFormData] = useState({
+    startDate: "",
+    endDate: "",
+    details: "",
+    nameClient: "",
+    offreId: null,
+  })
+
+  const [livrableFormData, setLivrableFormData] = useState({
+    titre: "",
+    description: "",
+    dateLivraison: "",
+    montant: "",
+    statutValidation: "EN_ATTENTE",
+    statutPaiement: "NON_PAYE",
+    fichierJoint: "",
+  })
+
+  // Fetch all contracts with better error handling
+  const fetchContrats = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      console.log("Fetching contracts...")
+      const response = await fetch("http://localhost:8080/api/contrats")
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`HTTP ${response.status}: ${errorText}`)
+      }
+      const data = await response.json()
+      console.log("Contracts fetched successfully:", data)
+      setContrats(data)
+    } catch (err) {
+      console.error("Error fetching contracts:", err)
+      setError(`Erreur lors du chargement des contrats: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // Fetch won offers without contracts
+  const fetchOffresGagnees = useCallback(async () => {
+    try {
+      console.log("Fetching won offers...")
+      const response = await fetch("http://localhost:8080/api/offres/gagnees-sans-contrat")
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`HTTP ${response.status}: ${errorText}`)
+      }
+      const data = await response.json()
+      console.log("Won offers fetched successfully:", data)
+      setOffresGagnees(data)
+    } catch (err) {
+      console.error("Error fetching won offers:", err)
+      setError(`Erreur lors du chargement des offres gagnées: ${err.message}`)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchContrats()
+    fetchOffresGagnees()
+  }, [fetchContrats, fetchOffresGagnees])
+
+  // Initialize signature canvas
+  useEffect(() => {
+    if (showSignatureModal && canvasRef.current) {
+      const canvas = canvasRef.current
+      canvas.width = 400
+      canvas.height = 200
+      const context = canvas.getContext("2d")
+      context.lineCap = "round"
+      context.strokeStyle = "#000000"
+      context.lineWidth = 2
+      contextRef.current = context
+    }
+  }, [showSignatureModal])
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target
+    setContratFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }))
+  }
+
+  const handleLivrableInputChange = (e) => {
+    const { name, value } = e.target
+    setLivrableFormData((prev) => ({
+      ...prev,
+      [name]: value,
+    }))
+  }
+
+  const handleOffreSelect = (e) => {
+    const offreId = Number.parseInt(e.target.value)
+    const offre = offresGagnees.find((o) => o.idOffre === offreId)
+    console.log("Selected offer:", offre)
+    if (offre) {
+      setSelectedOffre(offre)
+      setContratFormData((prev) => ({
+        ...prev,
+        offreId: offreId,
+        nameClient: safeGet(offre, "opportunite.client.name", ""),
+        details: `Contrat pour l'offre: ${offre.detail || "N/A"}`,
+      }))
+    }
+  }
+
+  const handleCreateContrat = async (e) => {
+    e.preventDefault()
+    if (!selectedOffre) {
+      setError("Veuillez sélectionner une offre")
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      console.log("Creating contract with data:", contratFormData)
+      const response = await fetch("http://localhost:8080/api/contrats", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(contratFormData),
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || "Erreur lors de la création du contrat")
+      }
+      const newContrat = await response.json()
+      console.log("Contract created successfully:", newContrat)
+      setContrats((prev) => [...prev, newContrat])
+      fetchOffresGagnees() // Refresh won offers list
+      toggleModal(null)
+      resetForm()
+    } catch (err) {
+      console.error("Error creating contract:", err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSignContract = async () => {
+    if (!selectedContrat || !signature || !signerName) {
+      setError("Veuillez remplir tous les champs de signature")
+      return
+    }
+    setLoading(true)
+    try {
+      console.log("Signing contract:", selectedContrat.id)
+      const response = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}/sign`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          signature: signature,
+          signerName: signerName,
+        }),
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || "Erreur lors de la signature")
+      }
+      const signedContrat = await response.json()
+      console.log("Contract signed successfully:", signedContrat)
+      setContrats((prev) => prev.map((c) => (c.id === signedContrat.id ? signedContrat : c)))
+      setShowSignatureModal(false)
+      setSignature("")
+      setSignerName("")
+      clearCanvas()
+    } catch (err) {
+      console.error("Error signing contract:", err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleGenerateAndSendPDF = async (contrat) => {
+    setLoading(true)
+    setError(null)
+    setEmailStatus((prev) => ({ ...prev, [contrat.id]: "sending" }))
+    try {
+      console.log("Generating and sending PDF for contract:", contrat.id)
+      const response = await fetch(`http://localhost:8080/api/contrats/${contrat.id}/generate-and-send`, {
+        method: "POST",
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || "Erreur lors de l'envoi du contrat")
+      }
+      const result = await response.json()
+      console.log("PDF sent successfully:", result)
+      setEmailStatus((prev) => ({ ...prev, [contrat.id]: "sent" }))
+      alert(`Contrat envoyé avec succès à ${result.emailSent}`)
+    } catch (err) {
+      console.error("Error sending PDF:", err)
+      setError(err.message)
+      setEmailStatus((prev) => ({ ...prev, [contrat.id]: "error" }))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAddLivrable = async (e) => {
+    e.preventDefault()
+    if (!selectedContrat) return
+    setLoading(true)
+    try {
+      console.log("Adding deliverable to contract:", selectedContrat.id)
+      const response = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}/livrables`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ...livrableFormData,
+          montant: Number.parseFloat(livrableFormData.montant),
+        }),
+      })
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || "Erreur lors de l'ajout du livrable")
+      }
+      const newLivrable = await response.json()
+      console.log("Deliverable added successfully:", newLivrable)
+      setSelectedContrat((prev) => ({
+        ...prev,
+        livrables: [...(prev.livrables || []), newLivrable],
+      }))
+      // Reset form
+      setLivrableFormData({
+        titre: "",
+        description: "",
+        dateLivraison: "",
+        montant: "",
+        statutValidation: "EN_ATTENTE",
+        statutPaiement: "NON_PAYE",
+        fichierJoint: "",
+      })
+    } catch (err) {
+      console.error("Error adding deliverable:", err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Signature canvas functions
+  const startDrawing = (e) => {
+    setIsDrawing(true)
+    const rect = canvasRef.current.getBoundingClientRect()
+    contextRef.current.beginPath()
+    contextRef.current.moveTo(e.clientX - rect.left, e.clientY - rect.top)
+  }
+
+  const draw = (e) => {
+    if (!isDrawing) return
+    const rect = canvasRef.current.getBoundingClientRect()
+    contextRef.current.lineTo(e.clientX - rect.left, e.clientY - rect.top)
+    contextRef.current.stroke()
+  }
+
+  const stopDrawing = () => {
+    if (!isDrawing) return
+    setIsDrawing(false)
+    contextRef.current.closePath()
+    // Convert canvas to base64
+    const canvas = canvasRef.current
+    const dataURL = canvas.toDataURL("image/png")
+    setSignature(dataURL.split(",")[1]) // Remove data:image/png;base64, prefix
+  }
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current
+    const context = canvas.getContext("2d")
+    context.clearRect(0, 0, canvas.width, canvas.height)
+    setSignature("")
+  }
+
+  const handleDeleteContrat = async (id) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce contrat ?")) return
+    setLoading(true)
+    try {
+      console.log("Deleting contract:", id)
+      const response = await fetch(`http://localhost:8080/api/contrats/${id}`, {
+        method: "DELETE",
+      })
+      if (!response.ok) throw new Error("Erreur lors de la suppression")
+      console.log("Contract deleted successfully")
+      setContrats((prev) => prev.filter((c) => c.id !== id))
+      fetchOffresGagnees() // Refresh won offers list
+    } catch (err) {
+      console.error("Error deleting contract:", err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const toggleModal = (modalId, contrat = null) => {
+    setActiveModalId(modalId)
+    setSelectedContrat(contrat)
+    if (!modalId) resetForm()
+  }
+
+  const resetForm = () => {
+    setContratFormData({
+      startDate: "",
+      endDate: "",
+      details: "",
+      nameClient: "",
+      offreId: null,
+    })
+    setSelectedOffre(null)
+  }
 
   const toggleExpandRow = (rowId) => {
-    setExpandedRows((prev) =>
-      prev.includes(rowId)
-        ? prev.filter((id) => id !== rowId)
-        : [...prev, rowId]
-    );
-  };
+    setExpandedRows((prev) => (prev.includes(rowId) ? prev.filter((id) => id !== rowId) : [...prev, rowId]))
+  }
 
   const getButtonStyle = (buttonId) => ({
     minWidth: "80px",
     backgroundColor: hoveredButton === buttonId ? "#ECECEC" : "white",
     fontFamily: "corbel",
-  });
+  })
 
-  const toggleModal = (modalId) => {
-    setActiveModalId(activeModalId === modalId ? null : modalId);
-  };
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case "ACTIF":
+        return "bg-success"
+      case "TERMINE":
+        return "bg-secondary"
+      case "SUSPENDU":
+        return "bg-warning"
+      default:
+        return "bg-primary"
+    }
+  }
 
-  {
-    /*--------------------------------------------------------------------------*/
+  const getEmailStatusIcon = (contratId) => {
+    const status = emailStatus[contratId]
+    switch (status) {
+      case "sending":
+        return <i className="fas fa-spinner fa-spin text-warning"></i>
+      case "sent":
+        return <i className="fas fa-check-circle text-success"></i>
+      case "error":
+        return <i className="fas fa-exclamation-circle text-danger"></i>
+      default:
+        return <i className="fas fa-envelope text-primary"></i>
+    }
+  }
+
+  const handleDownloadPDF = async (contrat) => {
+    setLoading(true)
+    setError(null)
+    try {
+      console.log("Downloading PDF for contract:", contrat.id)
+      const response = await fetch(`http://localhost:8080/api/contrats/${contrat.id}/generate-pdf`, {
+        method: "POST",
+      })
+      if (!response.ok) {
+        throw new Error("Erreur lors de la génération du PDF")
+      }
+      // Créer un blob à partir de la réponse
+      const blob = await response.blob()
+      // Créer un lien de téléchargement
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `contrat_${contrat.id}_${contrat.nameClient.replace(/\s+/g, "_")}.html`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      console.log("PDF downloaded successfully")
+      alert("Document téléchargé avec succès !")
+    } catch (err) {
+      console.error("Error downloading PDF:", err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDownloadDocument = async (document) => {
+    try {
+      console.log("Downloading document:", document)
+      // Utiliser l'ID du document pour télécharger via l'API
+      if (document.id) {
+        const response = await fetch(`http://localhost:8080/api/documents/${document.id}/download`)
+        if (!response.ok) {
+          throw new Error("Erreur lors du téléchargement du document")
+        }
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = document.namefile || `document_${document.id}`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        window.URL.revokeObjectURL(url)
+        console.log("Document downloaded successfully")
+      } else {
+        alert("Document non disponible pour le téléchargement")
+      }
+    } catch (error) {
+      console.error("Erreur lors du téléchargement:", error)
+      alert("Erreur lors du téléchargement du document: " + error.message)
+    }
+  }
+
+  if (loading && contrats.length === 0) {
+    return (
+      <div className="text-center py-5">
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Chargement...</span>
+        </div>
+      </div>
+    )
   }
 
   return (
-    <div
-      className="d-flex flex-column p-3 align-items-center"
-      style={{ backgroundColor: "white" }}
-    >
-      {/*Header Div---------------------------------------------------------------------*/}
+    <div className="d-flex flex-column p-3 align-items-center" style={{ backgroundColor: "white" }}>
+      {error && (
+        <div className="alert alert-danger w-100 mb-3">
+          {error}
+          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+        </div>
+      )}
+
+      {/* Header */}
       <div
-        className="rounded-3 p-3 d-flex shadow-lg  justify-content-between"
+        className="rounded-3 p-3 d-flex shadow-lg justify-content-between"
         style={{
           background:
             "linear-gradient(to right,rgba(4, 4, 4, 0.77),rgba(4, 4, 4, 0.77), rgba(45, 79, 39, 0.77), rgba(96, 54, 39, 0.77))",
@@ -47,27 +480,62 @@ function Module() {
           zIndex: 1,
         }}
       >
-        <h4 style={{ color: "white", fontFamily: "corbel" }}>
-          Modules & Elements
-        </h4>
-
-        <div class="d-flex flex-row">
-          {/*ajouter module*/}
+        <h4 style={{ color: "white", fontFamily: "corbel" }}>📋 Gestion des Contrats</h4>
+        <div className="d-flex flex-row">
           <button
-            class="d-flex p-5 pt-0 pb-0 btn btn-sm rounded-4 justify-content-center align-items-center "
+            className="d-flex p-5 pt-0 pb-0 btn btn-sm rounded-4 justify-content-center align-items-center"
             style={{ backgroundColor: "white" }}
-            onClick={() => toggleModal("modal5")}
+            onClick={() => toggleModal("createContrat")}
           >
-            <i
-              className="fa-solid fa-plus me-3"
-              style={{ color: " #008080" }}
-            ></i>
-            Module
+            <i className="fa-solid fa-plus me-3" style={{ color: "#008080" }}></i>
+            Nouveau Contrat
           </button>
         </div>
       </div>
 
-      {/*Table Div----------------------------------------------------------------------*/}
+      {/* Statistics Cards */}
+      <div className="w-100 mb-4" style={{ paddingTop: "60px" }}>
+        <div className="row g-3">
+          <div className="col-md-3">
+            <div className="card text-center border-primary">
+              <div className="card-body">
+                <i className="fas fa-file-contract fa-2x text-primary mb-2"></i>
+                <h4 className="text-primary">{contrats.length}</h4>
+                <p className="card-text text-black">Total Contrats</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="card text-center border-success">
+              <div className="card-body">
+                <i className="fas fa-handshake fa-2x text-success mb-2"></i>
+                <h4 className="text-success">{contrats.filter((c) => c.statut === "ACTIF").length}</h4>
+                <p className="card-text text-black">Actifs</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="card text-center border-warning">
+              <div className="card-body">
+                <i className="fas fa-pen-fancy fa-2x text-warning mb-2"></i>
+                <h4 className="text-warning">{contrats.filter((c) => c.signed).length}</h4>
+                <p className="card-text text-black">Signés</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="card text-center border-info">
+              <div className="card-body">
+                <i className="fas fa-calendar-check fa-2x text-info mb-2"></i>
+                <h4 className="text-info">{contrats.filter((c) => c.statut === "TERMINE").length}</h4>
+                <p className="card-text text-black">Terminés</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Table */}
       <div
         className="d-flex p-3 flex-column shadow-lg rounded-3 pt-5 w-100 border"
         style={{
@@ -81,225 +549,286 @@ function Module() {
             <thead>
               <tr>
                 <th style={{ color: "rgb(165, 168, 164)" }}>ID</th>
-                <th style={{ color: "rgb(165, 168, 164)" }}>MODULE</th>
-                <th style={{ color: "rgb(165, 168, 164)" }}>CLASSE</th>
-                <th
-                  className="text-center align-middle"
-                  style={{ color: "rgb(165, 168, 164)" }}
-                >
-                  ELEMENTS
+                <th style={{ color: "rgb(165, 168, 164)" }}>CLIENT</th>
+                <th style={{ color: "rgb(165, 168, 164)" }}>PROJET</th>
+                <th style={{ color: "rgb(165, 168, 164)" }}>BUDGET</th>
+                <th style={{ color: "rgb(165, 168, 164)" }}>STATUT</th>
+                <th style={{ color: "rgb(165, 168, 164)" }}>SIGNATURE</th>
+                <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
+                  DÉTAILS
                 </th>
-                <th
-                  className="text-center align-middle"
-                  style={{ color: "rgb(165, 168, 164)" }}
-                >
-                  MODIFICATION
+                <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
+                  PDF
                 </th>
-
-                <th
-                  className="text-center align-middle"
-                  style={{ color: "rgb(165, 168, 164)" }}
-                >
-                  SUPPRESSION
+                <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
+                  EMAIL
+                </th>
+                <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
+                  LIVRABLES
+                </th>
+                <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
+                  ACTIONS
                 </th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>G384765</td>
-                <td>Java Enterprise Edition</td>
-                <td>IID2</td>
-
-                {/*btn show element*/}
-                <td className="text-center align-middle">
-                  <button
-                    className="btn btn-sm rounded-4"
-                    style={getButtonStyle("ele")}
-                    onMouseEnter={() => setHoveredButton("ele")}
-                    onMouseLeave={() => setHoveredButton(null)}
-                    onClick={() => toggleExpandRow("row1")}
-                  >
-                    <i
-                      className="fa-solid fa-plus"
-                      style={{ width: "40px", color: "rgb(60, 201, 192)" }}
-                    ></i>
-                  </button>
-                </td>
-                <td className="text-center align-middle">
-                  <button
-                    className="btn btn-sm rounded-4"
-                    style={getButtonStyle("mod")}
-                    onMouseEnter={() => setHoveredButton("mod")}
-                    onMouseLeave={() => setHoveredButton(null)}
-                    onClick={() => toggleModal("modal2")}
-                  >
-                    <i
-                      className="fa-solid fa-pen"
-                      style={{ width: "20px", color: "rgb(38, 187, 110)" }}
-                    ></i>
-                  </button>
-                </td>
-
-                <td className="text-center align-middle">
-                  <button
-                    className="btn btn-sm rounded-4"
-                    style={getButtonStyle("sup")}
-                    onMouseEnter={() => setHoveredButton("sup")}
-                    onMouseLeave={() => setHoveredButton(null)}
-                    onClick={() => toggleModal("modal3")}
-                  >
-                    <i
-                      className="fa-solid fa-trash"
-                      style={{ width: "20px", color: "red" }}
-                    ></i>
-                  </button>
-                </td>
-              </tr>
-
-              {/* Collapsible 1 Section to show elements*/}
-              {expandedRows.includes("row1") && (
-                <tr>
-                  <td colSpan="6">
-                    <div
-                      className="p-1 rounded-3"
-                      style={{
-                        borderColor: "rgba(83, 81, 71, 0.47)",
-                        borderWidth: "2px",
-                        borderStyle: "solid",
-                      }}
-                    >
-                      {/* Content inside the collapsible */}
-                      <div
-                        class="p-3 rounded-3 "
-                        style={{ backgroundColor: "white" }}
+              {contrats.map((contrat) => (
+                <React.Fragment key={contrat.id}>
+                  <tr>
+                    <td style={{ color: "black" }}>#{contrat.id}</td>
+                    <td style={{ color: "black" }}>{contrat.nameClient}</td>
+                    <td style={{ color: "black" }}>{safeGet(contrat, "offre.opportunite.projectName", "N/A")}</td>
+                    <td style={{ color: "black" }}>
+                      {safeGet(contrat, "offre.budget") ? `${contrat.offre.budget} MAD` : "N/A"}
+                    </td>
+                    <td>
+                      <span className={`badge ${getStatusBadge(contrat.statut || "ACTIF")}`}>
+                        {contrat.statut || "ACTIF"}
+                      </span>
+                    </td>
+                    <td>
+                      {contrat.signed ? (
+                        <span className="badge bg-success">
+                          <i className="fas fa-check me-1"></i>
+                          Signé
+                        </span>
+                      ) : (
+                        <button
+                          className="btn btn-sm btn-warning"
+                          onClick={() => {
+                            setSelectedContrat(contrat)
+                            setShowSignatureModal(true)
+                          }}
+                        >
+                          <i className="fas fa-pen me-1"></i>
+                          Signer
+                        </button>
+                      )}
+                    </td>
+                    <td className="text-center">
+                      <button
+                        className="btn btn-sm rounded-4"
+                        style={getButtonStyle("details")}
+                        onMouseEnter={() => setHoveredButton("details")}
+                        onMouseLeave={() => setHoveredButton(null)}
+                        onClick={() => toggleExpandRow(`row-${contrat.id}`)}
                       >
-                        <table class="table">
-                          <thead>
-                            <tr>
-                              <th style={{ color: "rgb(218, 184, 33)" }}>
-                                ELEMENT
-                              </th>
-                              <th style={{ color: "rgb(218, 184, 33)" }}>
-                                ENSEIGNANT
-                              </th>
-                              <th style={{ color: "rgb(218, 184, 33)" }}>
-                                MODALITÉ
-                              </th>
-                              <th
-                                className="text-center align-middle"
-                                style={{ color: "rgb(218, 184, 33)" }}
-                              >
-                                MODIFICATION
-                              </th>
-                              <th
-                                className="text-center align-middle"
-                                style={{ color: "rgb(218, 184, 33)" }}
-                              >
-                                SUPRESSION
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            <tr>
-                              <td className="align-middle">POO avancée</td>
-                              <td className="align-middle">
-                                GHERABI NOREDDINE
-                              </td>
-                              <td class="d-flex flex-row align-middle">
-                                <ul class="list-unstyled">
-                                  <li>Projet</li>
-                                  <li>TP</li>
-                                  <li>Exam</li>
-                                </ul>
-                                <ul class="list-unstyled ms-3">
-                                  <li>:</li>
-                                  <li>:</li>
-                                  <li>:</li>
-                                </ul>
-
-                                <ul class="list-unstyled ms-3">
-                                  <li>50%</li>
-                                  <li>30%</li>
-                                  <li>20%</li>
-                                </ul>
-                              </td>
-                              <td className="text-center align-middle">
-                                <button
-                                  className="btn btn-sm rounded-4"
-                                  style={getButtonStyle("modi")}
-                                  onMouseEnter={() => setHoveredButton("modi")}
-                                  onMouseLeave={() => setHoveredButton(null)}
-                                  onClick={() => toggleModal("modal7")}
-                                >
-                                  <i
-                                    className="fa-solid fa-pen"
-                                    style={{
-                                      width: "20px",
-                                      color: "rgb(176, 173, 163)",
-                                    }}
-                                  ></i>
-                                </button>
-                              </td>
-                              <td className="text-center align-middle">
-                                <button
-                                  className="btn btn-sm rounded-4"
-                                  style={getButtonStyle("supp")}
-                                  onMouseEnter={() => setHoveredButton("supp")}
-                                  onMouseLeave={() => setHoveredButton(null)}
-                                  onClick={() => toggleModal("modal8")}
-                                >
-                                  <i
-                                    className="fa-solid fa-trash"
-                                    style={{
-                                      width: "20px",
-                                      color: "rgb(176, 173, 163)",
-                                    }}
-                                  ></i>
-                                </button>
-                              </td>
-                            </tr>
-                            <tr>
-                              <td
-                                colSpan="100%"
-                                style={{ width: "100%" }}
-                                className="p-3"
-                              >
-                                <div
-                                  className="d-flex justify-content-center align-items-center p-3 rounded-4"
-                                  style={{
-                                    backgroundColor: "rgba(129, 116, 74, 0.1)",
-                                  }}
-                                >
-                                  <button
-                                    class="d-flex p-5 pt-2 pb-2 btn btn-sm rounded-4 justify-content-center align-items-center "
-                                    style={{ backgroundColor: "white" }}
-                                    onClick={() => toggleModal("modal9")}
-                                  >
-                                    <i
-                                      className="fa-solid fa-plus me-3"
-                                      style={{ color: "rgb(179, 162, 53)" }}
-                                    ></i>
-                                    Elément
-                                  </button>
+                        <i className="fa-solid fa-eye" style={{ color: "rgb(60, 201, 192)" }}></i>
+                      </button>
+                    </td>
+                    <td className="text-center">
+                      <button
+                        className="btn btn-sm rounded-4"
+                        style={getButtonStyle("pdf")}
+                        onMouseEnter={() => setHoveredButton("pdf")}
+                        onMouseLeave={() => setHoveredButton(null)}
+                        onClick={() => handleDownloadPDF(contrat)}
+                        disabled={loading || !contrat.signed}
+                        title={!contrat.signed ? "Le contrat doit être signé avant l'export" : "Télécharger le PDF"}
+                      >
+                        <i className="fas fa-file-pdf text-danger"></i>
+                      </button>
+                    </td>
+                    <td className="text-center">
+                      <button
+                        className="btn btn-sm rounded-4"
+                        style={getButtonStyle("email")}
+                        onMouseEnter={() => setHoveredButton("email")}
+                        onMouseLeave={() => setHoveredButton(null)}
+                        onClick={() => handleGenerateAndSendPDF(contrat)}
+                        disabled={loading || !contrat.signed}
+                        title={!contrat.signed ? "Le contrat doit être signé avant l'envoi" : "Envoyer par email"}
+                      >
+                        {getEmailStatusIcon(contrat.id)}
+                      </button>
+                    </td>
+                    <td className="text-center">
+                      <button
+                        className="btn btn-sm rounded-4"
+                        style={getButtonStyle("livrables")}
+                        onMouseEnter={() => setHoveredButton("livrables")}
+                        onMouseLeave={() => setHoveredButton(null)}
+                        onClick={() => toggleModal("livrables", contrat)}
+                      >
+                        <i className="fa-solid fa-tasks" style={{ color: "rgb(255, 193, 7)" }}></i>
+                      </button>
+                    </td>
+                    <td className="text-center">
+                      <button
+                        className="btn btn-sm rounded-4 me-2"
+                        style={getButtonStyle("delete")}
+                        onMouseEnter={() => setHoveredButton("delete")}
+                        onMouseLeave={() => setHoveredButton(null)}
+                        onClick={() => handleDeleteContrat(contrat.id)}
+                      >
+                        <i className="fa-solid fa-trash" style={{ color: "red" }}></i>
+                      </button>
+                    </td>
+                  </tr>
+                  {expandedRows.includes(`row-${contrat.id}`) && (
+                    <tr key={`expanded-${contrat.id}`}>
+                      <td colSpan={11}>
+                        <div className="p-3 rounded-3 border" style={{ backgroundColor: "#f8f9fa" }}>
+                          <div className="row">
+                            <div className="col-md-6">
+                              <div className="card mb-3">
+                                <div className="card-header bg-primary text-white">
+                                  <h6 className="mb-0">📋 Informations du Contrat</h6>
                                 </div>
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
+                                <div className="card-body">
+                                  <p style={{ color: "black" }}>
+                                    <strong style={{ color: "black" }}>Date de début:</strong>{" "}
+                                    {contrat.startDate ? new Date(contrat.startDate).toLocaleDateString() : "N/A"}
+                                  </p>
+                                  <p style={{ color: "black" }}>
+                                    <strong style={{ color: "black" }}>Date de fin:</strong>{" "}
+                                    {contrat.endDate ? new Date(contrat.endDate).toLocaleDateString() : "N/A"}
+                                  </p>
+                                  <p style={{ color: "black" }}>
+                                    <strong style={{ color: "black" }}>Détails:</strong>{" "}
+                                    {contrat.details || "Aucun détail spécifié"}
+                                  </p>
+                                  {contrat.signed && (
+                                    <>
+                                      <p style={{ color: "black" }}>
+                                        <strong style={{ color: "black" }}>Signé par:</strong> {contrat.signerName}
+                                      </p>
+                                      <p style={{ color: "black" }}>
+                                        <strong style={{ color: "black" }}>Date de signature:</strong>{" "}
+                                        {contrat.dateSignature
+                                          ? new Date(contrat.dateSignature).toLocaleDateString()
+                                          : "N/A"}
+                                      </p>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="col-md-6">
+                              <div className="card mb-3">
+                                <div className="card-header bg-success text-white">
+                                  <h6 className="mb-0">🎯 Informations de l'Offre</h6>
+                                </div>
+                                <div className="card-body">
+                                  <p style={{ color: "black" }}>
+                                    <strong style={{ color: "black" }}>Budget:</strong>{" "}
+                                    {safeGet(contrat, "offre.budget") ? `${contrat.offre.budget} MAD` : "N/A"}
+                                  </p>
+                                  <p style={{ color: "black" }}>
+                                    <strong style={{ color: "black" }}>Tâches:</strong>{" "}
+                                    {safeGet(contrat, "offre.taches.length", 0)}
+                                  </p>
+                                  {safeGet(contrat, "offre.taches") && contrat.offre.taches.length > 0 && (
+                                    <div className="mt-2">
+                                      <small className="text-muted" style={{ color: "black !important" }}>
+                                        Liste des tâches:
+                                      </small>
+                                      <ul className="list-unstyled ms-3">
+                                        {contrat.offre.taches.slice(0, 3).map((tache, index) => (
+                                          <li key={index} className="small" style={{ color: "black" }}>
+                                            • {tache.titre || `Tâche ${index + 1}`}
+                                            {tache.checked && <span className="text-success ms-1">✓</span>}
+                                          </li>
+                                        ))}
+                                        {contrat.offre.taches.length > 3 && (
+                                          <li className="small" style={{ color: "black" }}>
+                                            ... et {contrat.offre.taches.length - 3} autres
+                                          </li>
+                                        )}
+                                      </ul>
+                                    </div>
+                                  )}
+                                  <p style={{ color: "black" }}>
+                                    <strong style={{ color: "black" }}>Documents:</strong>{" "}
+                                    {safeGet(contrat, "offre.documents.length", 0)}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="row mt-2">
+                            <div className="col-md-6">
+                              {safeGet(contrat, "offre.documents") && contrat.offre.documents.length > 0 && (
+                                <div className="card">
+                                  <div className="card-header bg-info text-white">
+                                    <h6 className="mb-0">📄 Documents Associés</h6>
+                                  </div>
+                                  <div className="card-body">
+                                    <div className="ms-3">
+                                      {contrat.offre.documents.map((document, index) => (
+                                        <div
+                                          key={index}
+                                          className="d-flex align-items-center justify-content-between border rounded p-2 mb-1"
+                                          style={{ backgroundColor: "white" }}
+                                        >
+                                          <div className="d-flex align-items-center">
+                                            <i className="fas fa-file-alt text-primary me-2"></i>
+                                            <div>
+                                              <div className="small fw-bold" style={{ color: "black" }}>
+                                                {document.namefile || `Document ${index + 1}`}
+                                              </div>
+                                              <div
+                                                className="text-muted"
+                                                style={{ fontSize: "0.75rem", color: "black !important" }}
+                                              >
+                                                {document.type || "Type non spécifié"}
+                                              </div>
+                                            </div>
+                                          </div>
+                                          <button
+                                            className="btn btn-sm btn-outline-primary"
+                                            onClick={() => handleDownloadDocument(document)}
+                                            title="Télécharger le document"
+                                          >
+                                            <i className="fas fa-download"></i>
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="col-md-6">
+                              {safeGet(contrat, "offre.opportunite") && (
+                                <div className="card">
+                                  <div className="card-header bg-secondary text-white">
+                                    <h6 className="mb-0">🏢 Informations Client</h6>
+                                  </div>
+                                  <div className="card-body">
+                                    <p style={{ color: "black" }}>
+                                      <strong style={{ color: "black" }}>Projet:</strong>{" "}
+                                      {safeGet(contrat, "offre.opportunite.projectName", "N/A")}
+                                    </p>
+                                    <p style={{ color: "black" }}>
+                                      <strong style={{ color: "black" }}>Client:</strong>{" "}
+                                      {safeGet(contrat, "offre.opportunite.client.name", "N/A")}
+                                    </p>
+                                    {safeGet(contrat, "offre.opportunite.client.contacts") &&
+                                      contrat.offre.opportunite.client.contacts.length > 0 && (
+                                        <p style={{ color: "black" }}>
+                                          <strong style={{ color: "black" }}>Contact:</strong>{" "}
+                                          {safeGet(contrat, "offre.opportunite.client.contacts.0.email", "N/A")}
+                                        </p>
+                                      )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Modals ---------------------------------------------------------------------------------------------*/}
-
-      {/*Modification-----------------------*/}
-      {activeModalId === "modal2" && (
+      {/* Create Contract Modal */}
+      {activeModalId === "createContrat" && (
         <div
           className="modal show"
           style={{
@@ -308,309 +837,232 @@ function Module() {
             zIndex: 4,
           }}
         >
-          <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content">
               <div className="modal-header">
-                <h4
-                  className="modal-title"
-                  style={{
-                    fontFamily: "corbel",
-                    color: "rgb(38, 187, 110)",
-                  }}
-                >
-                  Mise à jour
+                <h4 className="modal-title" style={{ fontFamily: "corbel", color: "#008080" }}>
+                  📋 Nouveau Contrat
                 </h4>
+                <button type="button" className="btn-close" onClick={() => toggleModal(null)}></button>
               </div>
-              <div className="modal-body">
-                <div class="d-flex flex-column p-3">
-                  <input
-                    type="text"
-                    className="form-control"
-                    id="exampleInput"
-                    placeholder="Nouveau Nom"
-                  />
+              <form onSubmit={handleCreateContrat}>
+                <div className="modal-body">
+                  <div className="row g-3">
+                    <div className="col-12">
+                      <label className="form-label" style={{ color: "black" }}>
+                        Offre Gagnée
+                      </label>
+                      <select
+                        className="form-control"
+                        name="offreId"
+                        value={contratFormData.offreId || ""}
+                        onChange={handleOffreSelect}
+                        required
+                      >
+                        <option value="">Sélectionner une offre gagnée</option>
+                        {offresGagnees.map((offre) => (
+                          <option key={offre.idOffre} value={offre.idOffre}>
+                            {safeGet(offre, "opportunite.projectName", "Projet non spécifié")} - {offre.budget} MAD
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label" style={{ color: "black" }}>
+                        Date de début
+                      </label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        name="startDate"
+                        value={contratFormData.startDate}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="col-md-6">
+                      <label className="form-label" style={{ color: "black" }}>
+                        Date de fin
+                      </label>
+                      <input
+                        type="date"
+                        className="form-control"
+                        name="endDate"
+                        value={contratFormData.endDate}
+                        onChange={handleInputChange}
+                        required
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label" style={{ color: "black" }}>
+                        Nom du Client
+                      </label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        name="nameClient"
+                        value={contratFormData.nameClient}
+                        onChange={handleInputChange}
+                        required
+                        readOnly={!!selectedOffre}
+                      />
+                    </div>
+                    <div className="col-12">
+                      <label className="form-label" style={{ color: "black" }}>
+                        Détails du Contrat
+                      </label>
+                      <textarea
+                        className="form-control"
+                        name="details"
+                        value={contratFormData.details}
+                        onChange={handleInputChange}
+                        rows="4"
+                        placeholder="Détails et conditions du contrat..."
+                        required
+                      />
+                    </div>
+                    {selectedOffre && (
+                      <div className="col-12">
+                        <div className="alert alert-info">
+                          <h6 style={{ color: "black" }}>📊 Résumé de l'Offre Sélectionnée:</h6>
+                          <p style={{ color: "black" }}>
+                            <strong>Projet:</strong> {safeGet(selectedOffre, "opportunite.projectName", "N/A")}
+                          </p>
+                          <p style={{ color: "black" }}>
+                            <strong>Budget:</strong> {selectedOffre.budget} MAD
+                          </p>
+                          <p style={{ color: "black" }}>
+                            <strong>Tâches:</strong> {safeGet(selectedOffre, "taches.length", 0)}
+                          </p>
+                          <p style={{ color: "black" }}>
+                            <strong>Documents:</strong> {safeGet(selectedOffre, "documents.length", 0)}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal2")}
-                >
-                  Modifier
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal2")}
-                >
-                  Annuler
-                </button>
-              </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => toggleModal(null)}>
+                    Annuler
+                  </button>
+                  <button type="submit" className="btn btn-success" disabled={loading}>
+                    {loading ? (
+                      <>
+                        <span className="spinner-border spinner-border-sm me-2"></span>
+                        Création...
+                      </>
+                    ) : (
+                      "Créer le Contrat"
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>
       )}
 
-      {/*Suppression-------------------------------------------------------------------*/}
-      {activeModalId === "modal3" && (
+      {/* Signature Modal */}
+      {showSignatureModal && (
         <div
           className="modal show"
           style={{
             display: "block",
             backgroundColor: "rgba(0,0,0,0.5)",
-            zIndex: 5,
+            zIndex: 4,
           }}
         >
-          <div className="modal-dialog modal-dialog-centered">
+          <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content">
               <div className="modal-header">
-                <h4
-                  className="modal-title"
-                  style={{ fontFamily: "corbel", color: "red" }}
-                >
-                  Suppression
+                <h4 className="modal-title" style={{ fontFamily: "corbel", color: "#ffc107" }}>
+                  ✍️ Signature Électronique
                 </h4>
+                <button type="button" className="btn-close" onClick={() => setShowSignatureModal(false)}></button>
               </div>
               <div className="modal-body">
-                <p>Êtes-vous sûr de vouloir retirer ce Module ?</p>
-              </div>
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal3")}
-                >
-                  Retour
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal3")}
-                >
-                  Oui
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/*Ajouter Module-------------------------------------------------------------------*/}
-      {activeModalId === "modal5" && (
-        <div
-          className="modal show "
-          style={{
-            display: "block",
-            backgroundColor: "rgba(0,0,0,0.5)",
-            zIndex: 3,
-          }}
-        >
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content ">
-              <div className="modal-header">
-                <h4
-                  className="modal-title"
-                  style={{
-                    fontFamily: "corbel",
-                    color: " #008080",
-                  }}
-                >
-                  Nouveau Module
-                </h4>
-              </div>
-
-              <div className="modal-body">
-                <div class="d-flex flex-column p-3">
+                <div className="mb-3">
+                  <label className="form-label" style={{ color: "black" }}>
+                    Nom du signataire
+                  </label>
                   <input
                     type="text"
-                    className="form-control mb-4"
-                    id="exampleInput"
-                    placeholder="Intitulé du module "
-                  />
-
-                  <select className="form-control mb-4" defaultValue="">
-                    <option value="" disabled>
-                      Choisissez une filière
-                    </option>
-                    <option value="IID">IID</option>
-                    <option value="GI">GI</option>
-                    <option value="GE">GE</option>
-                  </select>
-
-                  <select className="form-control" defaultValue="">
-                    <option value="" disabled>
-                      Choisissez une classe
-                    </option>
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal5")}
-                >
-                  Inserer
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal5")}
-                >
-                  Annuler
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/*Modification-------------------------------------------------------------------*/}
-      {activeModalId === "modal7" && (
-        <div
-          className="modal show "
-          style={{
-            display: "block",
-            backgroundColor: "rgba(0,0,0,0.5)",
-            zIndex: 3,
-          }}
-        >
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content ">
-              <div className="modal-header">
-                <h4
-                  className="modal-title"
-                  style={{
-                    fontFamily: "corbel",
-                    color: " rgb(218, 184, 33)",
-                  }}
-                >
-                  Mise à jour
-                </h4>
-              </div>
-
-              <div className="modal-body">
-                <div class="d-flex flex-column p-3">
-                  <input
-                    type="text"
-                    className="form-control mb-4"
-                    id="exampleInput"
-                    placeholder="Nouveau intitulé "
-                  />
-
-                  <select className="form-control mb-4" defaultValue="">
-                    <option value="" disabled>
-                      Choisissez un nouveau enseignant
-                    </option>
-                    <option value="IID">prof1</option>
-                    <option value="GI">prof2</option>
-                    <option value="GE">prof3</option>
-                  </select>
-
-                  <input
-                    type="number"
-                    class="form-control mb-4"
-                    id="exampleInput"
-                    placeholder="Nouveau pourcentage Projet"
-                    min="0"
-                    max="100"
-                    step="1"
-                  />
-
-                  <input
-                    type="number"
-                    class="form-control mb-4"
-                    id="exampleInput"
-                    placeholder="Nouveau pourcentage TP"
-                    min="0"
-                    max="100"
-                    step="1"
-                  />
-
-                  <input
-                    type="number"
-                    class="form-control mb-4"
-                    id="exampleInput"
-                    placeholder="Nouveau pourcentage Exam"
-                    min="0"
-                    max="100"
-                    step="1"
+                    className="form-control"
+                    value={signerName}
+                    onChange={(e) => setSignerName(e.target.value)}
+                    placeholder="Entrez votre nom complet"
+                    required
                   />
                 </div>
+                <div className="mb-3">
+                  <label className="form-label" style={{ color: "black" }}>
+                    Signature
+                  </label>
+                  <div className="border rounded p-2" style={{ backgroundColor: "#f8f9fa" }}>
+                    <canvas
+                      ref={canvasRef}
+                      onMouseDown={startDrawing}
+                      onMouseMove={draw}
+                      onMouseUp={stopDrawing}
+                      onMouseLeave={stopDrawing}
+                      style={{
+                        border: "1px solid #ddd",
+                        borderRadius: "4px",
+                        cursor: "crosshair",
+                        backgroundColor: "white",
+                        width: "100%",
+                        maxWidth: "400px",
+                        height: "200px",
+                      }}
+                    />
+                    <div className="mt-2">
+                      <button type="button" className="btn btn-sm btn-outline-secondary" onClick={clearCanvas}>
+                        <i className="fas fa-eraser me-1"></i>
+                        Effacer
+                      </button>
+                      <small className="text-muted ms-3" style={{ color: "black !important" }}>
+                        Dessinez votre signature dans la zone ci-dessus
+                      </small>
+                    </div>
+                  </div>
+                </div>
+                {selectedContrat && (
+                  <div className="alert alert-info">
+                    <h6 style={{ color: "black" }}>📋 Contrat à signer:</h6>
+                    <p style={{ color: "black" }}>
+                      <strong>Client:</strong> {selectedContrat.nameClient}
+                    </p>
+                    <p style={{ color: "black" }}>
+                      <strong>Projet:</strong> {safeGet(selectedContrat, "offre.opportunite.projectName", "N/A")}
+                    </p>
+                    <p style={{ color: "black" }}>
+                      <strong>Budget:</strong> {safeGet(selectedContrat, "offre.budget", 0)} MAD
+                    </p>
+                  </div>
+                )}
               </div>
-
               <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal7")}
-                >
-                  Mettre à jour
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal7")}
-                >
+                <button type="button" className="btn btn-secondary" onClick={() => setShowSignatureModal(false)}>
                   Annuler
                 </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/*Suppression -------------------------------------------------------------------*/}
-      {activeModalId === "modal8" && (
-        <div
-          className="modal show "
-          style={{
-            display: "block",
-            backgroundColor: "rgba(0,0,0,0.5)",
-            zIndex: 3,
-          }}
-        >
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content ">
-              <div className="modal-header">
-                <h4
-                  className="modal-title"
-                  style={{
-                    fontFamily: "corbel",
-                    color: " red",
-                  }}
-                >
-                  Suppression
-                </h4>
-              </div>
-
-              <div className="modal-body">
-                <p>Êtes-vous sûr de vouloir retirer cet Element ?</p>
-              </div>
-              <div className="modal-footer">
                 <button
                   type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal8")}
+                  className="btn btn-warning"
+                  onClick={handleSignContract}
+                  disabled={loading || !signature || !signerName}
                 >
-                  Retour
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal8")}
-                >
-                  Oui
+                  {loading ? (
+                    <>
+                      <span className="spinner-border spinner-border-sm me-2"></span>
+                      Signature...
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-pen-fancy me-2"></i>
+                      Signer le Contrat
+                    </>
+                  )}
                 </button>
               </div>
             </div>
@@ -618,107 +1070,227 @@ function Module() {
         </div>
       )}
 
-      {/*Ajouter Element-------------------------------------------------------------------*/}
-      {activeModalId === "modal9" && (
+      {/* Livrables Modal */}
+      {activeModalId === "livrables" && selectedContrat && (
         <div
-          className="modal show "
+          className="modal show"
           style={{
             display: "block",
             backgroundColor: "rgba(0,0,0,0.5)",
-            zIndex: 3,
+            zIndex: 4,
           }}
         >
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content ">
+          <div className="modal-dialog modal-dialog-centered modal-xl">
+            <div className="modal-content">
               <div className="modal-header">
-                <h4
-                  className="modal-title"
-                  style={{
-                    fontFamily: "corbel",
-                    color: " #008080",
-                  }}
-                >
-                  Nouveau Elément
+                <h4 className="modal-title" style={{ fontFamily: "corbel", color: "#ffc107" }}>
+                  📦 Gestion des Livrables - Contrat #{selectedContrat.id}
                 </h4>
+                <button type="button" className="btn-close" onClick={() => toggleModal(null)}></button>
               </div>
-
               <div className="modal-body">
-                <div class="d-flex flex-column p-3">
-                  <input
-                    type="text"
-                    className="form-control mb-4"
-                    id="exampleInput"
-                    placeholder="Intitulé de l'elément "
-                  />
+                {/* Add Livrable Form */}
+                <div className="card mb-4">
+                  <div className="card-header bg-primary text-white">
+                    <h5 className="mb-0">
+                      <i className="fas fa-plus me-2"></i>
+                      Ajouter un Livrable
+                    </h5>
+                  </div>
+                  <div className="card-body">
+                    <form onSubmit={handleAddLivrable}>
+                      <div className="row g-3">
+                        <div className="col-md-6">
+                          <label className="form-label" style={{ color: "black" }}>
+                            Titre du livrable
+                          </label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="titre"
+                            value={livrableFormData.titre}
+                            onChange={handleLivrableInputChange}
+                            required
+                          />
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label" style={{ color: "black" }}>
+                            Date de livraison
+                          </label>
+                          <input
+                            type="date"
+                            className="form-control"
+                            name="dateLivraison"
+                            value={livrableFormData.dateLivraison}
+                            onChange={handleLivrableInputChange}
+                            required
+                          />
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label" style={{ color: "black" }}>
+                            Montant (MAD)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            className="form-control"
+                            name="montant"
+                            value={livrableFormData.montant}
+                            onChange={handleLivrableInputChange}
+                            required
+                          />
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label" style={{ color: "black" }}>
+                            Fichier joint (optionnel)
+                          </label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            name="fichierJoint"
+                            value={livrableFormData.fichierJoint}
+                            onChange={handleLivrableInputChange}
+                            placeholder="Chemin ou URL du fichier"
+                          />
+                        </div>
+                        <div className="col-12">
+                          <label className="form-label" style={{ color: "black" }}>
+                            Description
+                          </label>
+                          <textarea
+                            className="form-control"
+                            name="description"
+                            value={livrableFormData.description}
+                            onChange={handleLivrableInputChange}
+                            rows="3"
+                            placeholder="Description détaillée du livrable"
+                            required
+                          />
+                        </div>
+                        <div className="col-12">
+                          <button type="submit" className="btn btn-primary" disabled={loading}>
+                            {loading ? (
+                              <>
+                                <span className="spinner-border spinner-border-sm me-2"></span>
+                                Ajout...
+                              </>
+                            ) : (
+                              <>
+                                <i className="fas fa-plus me-2"></i>
+                                Ajouter le Livrable
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </form>
+                  </div>
+                </div>
 
-                  <select className="form-control mb-4" defaultValue="">
-                    <option value="" disabled>
-                      Choisissez un enseignant
-                    </option>
-                    <option value="IID">IID</option>
-                    <option value="GI">GI</option>
-                    <option value="GE">GE</option>
-                  </select>
-
-                  <input
-                    type="number"
-                    class="form-control mb-4"
-                    id="exampleInput"
-                    placeholder="Pourcentage/Module"
-                    min="0"
-                    max="100"
-                    step="1"
-                  />
-
-                  <div class="d-flex flex-row">
-                    <input
-                      type="number"
-                      class="form-control me-2"
-                      id="exampleInput"
-                      placeholder="% Projet"
-                      min="0"
-                      max="100"
-                      step="1"
-                    />
-
-                    <input
-                      type="number"
-                      class="form-control me-2"
-                      id="exampleInput"
-                      placeholder="% TP"
-                      min="0"
-                      max="100"
-                      step="1"
-                    />
-
-                    <input
-                      type="number"
-                      class="form-control"
-                      id="exampleInput"
-                      placeholder="% Exam"
-                      min="0"
-                      max="100"
-                      step="1"
-                    />
+                {/* Livrables List */}
+                <div className="card">
+                  <div className="card-header bg-success text-white">
+                    <h5 className="mb-0">
+                      <i className="fas fa-list me-2"></i>
+                      Liste des Livrables ({selectedContrat.livrables?.length || 0})
+                    </h5>
+                  </div>
+                  <div className="card-body">
+                    {selectedContrat.livrables?.length > 0 ? (
+                      <div className="table-responsive">
+                        <table className="table table-striped">
+                          <thead>
+                            <tr>
+                              <th style={{ color: "black" }}>Titre</th>
+                              <th style={{ color: "black" }}>Description</th>
+                              <th style={{ color: "black" }}>Date Livraison</th>
+                              <th style={{ color: "black" }}>Montant</th>
+                              <th style={{ color: "black" }}>Statut Validation</th>
+                              <th style={{ color: "black" }}>Statut Paiement</th>
+                              <th style={{ color: "black" }}>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {selectedContrat.livrables.map((livrable) => (
+                              <tr key={livrable.id || `livrable-${Math.random()}`}>
+                                <td style={{ color: "black" }}>
+                                  <strong>{livrable.titre}</strong>
+                                  {livrable.fichierJoint && (
+                                    <div>
+                                      <small style={{ color: "black" }}>
+                                        <i className="fas fa-paperclip me-1"></i>
+                                        Fichier joint
+                                      </small>
+                                    </div>
+                                  )}
+                                </td>
+                                <td style={{ color: "black" }}>
+                                  <small>{livrable.description}</small>
+                                </td>
+                                <td style={{ color: "black" }}>
+                                  {new Date(livrable.dateLivraison).toLocaleDateString()}
+                                </td>
+                                <td style={{ color: "black" }}>
+                                  <strong>{livrable.montant} MAD</strong>
+                                </td>
+                                <td>
+                                  <span
+                                    className={`badge ${
+                                      livrable.statutValidation === "VALIDE"
+                                        ? "bg-success"
+                                        : livrable.statutValidation === "REFUSE"
+                                          ? "bg-danger"
+                                          : "bg-warning"
+                                    }`}
+                                  >
+                                    {livrable.statutValidation}
+                                  </span>
+                                </td>
+                                <td>
+                                  <span
+                                    className={`badge ${
+                                      livrable.statutPaiement === "PAYE"
+                                        ? "bg-success"
+                                        : livrable.statutPaiement === "SOLDE"
+                                          ? "bg-info"
+                                          : "bg-warning"
+                                    }`}
+                                  >
+                                    {livrable.statutPaiement}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div className="btn-group" role="group">
+                                    <button className="btn btn-sm btn-outline-primary" title="Modifier">
+                                      <i className="fas fa-edit"></i>
+                                    </button>
+                                    <button className="btn btn-sm btn-outline-danger" title="Supprimer">
+                                      <i className="fas fa-trash"></i>
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-4">
+                        <i className="fas fa-inbox fa-3x text-muted mb-3"></i>
+                        <p className="text-muted" style={{ color: "black !important" }}>
+                          Aucun livrable défini pour ce contrat
+                        </p>
+                        <p className="text-muted" style={{ color: "black !important" }}>
+                          Utilisez le formulaire ci-dessus pour ajouter des livrables
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
-
               <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal9")}
-                >
-                  Inserer
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => toggleModal("modal9")}
-                >
-                  Annuler
+                <button type="button" className="btn btn-secondary" onClick={() => toggleModal(null)}>
+                  Fermer
                 </button>
               </div>
             </div>
@@ -726,7 +1298,7 @@ function Module() {
         </div>
       )}
     </div>
-  );
+  )
 }
 
-export default Module;
+export default ContractManagement
