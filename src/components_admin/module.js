@@ -404,22 +404,46 @@ const ContractManagement = () => {
   }
 
   const handleDeleteContrat = async (id) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce contrat ?")) return
-    setLoading(true)
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce contrat ?")) return;
+
+    setLoading(true);
+    setError(null);
+
     try {
+      console.log("Tentative de suppression du contrat ID:", id);
       const response = await fetch(`http://localhost:8080/api/contrats/${id}`, {
         method: "DELETE",
-      })
-      if (!response.ok) throw new Error("Erreur lors de la suppression")
-      setContrats((prev) => prev.filter((c) => c.id !== id))
-      fetchOffresGagnees()
+      });
+
+      console.log("Réponse reçue:", response.status);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Détails de l'erreur:", errorData);
+        throw new Error(errorData.message || `Erreur HTTP ${response.status}`);
+      }
+
+      // Mise à jour optimiste de l'état local
+      setContrats(prevContrats => {
+        const newContrats = prevContrats.filter(contrat => contrat.id !== id);
+        console.log("Nouvelle liste de contrats après suppression:", newContrats);
+        return newContrats;
+      });
+
+      // Rafraîchir les données
+      await fetchOffresGagnees();
+      console.log("Suppression réussie et données rafraîchies");
+
     } catch (err) {
-      console.error("Error deleting contract:", err)
-      setError(err.message)
+      console.error("Échec de la suppression:", err);
+      setError(`Échec de la suppression du contrat: ${err.message}`);
+
+      // Recharger les données pour synchronisation
+      await fetchContrats();
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   const toggleModal = async (modalId, contrat = null) => {
     setActiveModalId(modalId)
