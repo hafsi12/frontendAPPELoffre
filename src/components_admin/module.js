@@ -4,7 +4,6 @@ import React, { useState, useEffect, useCallback, useRef } from "react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
 
-// Fonction utilitaire pour accéder aux propriétés imbriquées de manière sécurisée
 const safeGet = (obj, path, defaultValue = null) => {
   try {
     return path.split(".").reduce((current, key) => current && current[key], obj) || defaultValue
@@ -22,6 +21,7 @@ const ContractManagement = () => {
   const [activeModalId, setActiveModalId] = useState(null)
   const [selectedContrat, setSelectedContrat] = useState(null)
   const [selectedOffre, setSelectedOffre] = useState(null)
+  const [selectedLivrable, setSelectedLivrable] = useState(null)
   const [hoveredButton, setHoveredButton] = useState(null)
   const [expandedRows, setExpandedRows] = useState([])
   const [emailStatus, setEmailStatus] = useState({})
@@ -30,7 +30,6 @@ const ContractManagement = () => {
   const [signerName, setSignerName] = useState("")
   const [isDrawing, setIsDrawing] = useState(false)
 
-  // Refs pour le canvas de signature
   const canvasRef = useRef(null)
   const contextRef = useRef(null)
 
@@ -52,19 +51,16 @@ const ContractManagement = () => {
     fichierJoint: "",
   })
 
-  // Fetch all contracts with better error handling
   const fetchContrats = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      console.log("Fetching contracts...")
       const response = await fetch("http://localhost:8080/api/contrats")
       if (!response.ok) {
         const errorText = await response.text()
         throw new Error(`HTTP ${response.status}: ${errorText}`)
       }
       const data = await response.json()
-      console.log("Contracts fetched successfully:", data)
       setContrats(data)
     } catch (err) {
       console.error("Error fetching contracts:", err)
@@ -74,21 +70,30 @@ const ContractManagement = () => {
     }
   }, [])
 
-  // Fetch won offers without contracts
   const fetchOffresGagnees = useCallback(async () => {
     try {
-      console.log("Fetching won offers...")
       const response = await fetch("http://localhost:8080/api/offres/gagnees-sans-contrat")
       if (!response.ok) {
         const errorText = await response.text()
         throw new Error(`HTTP ${response.status}: ${errorText}`)
       }
       const data = await response.json()
-      console.log("Won offers fetched successfully:", data)
       setOffresGagnees(data)
     } catch (err) {
       console.error("Error fetching won offers:", err)
       setError(`Erreur lors du chargement des offres gagnées: ${err.message}`)
+    }
+  }, [])
+
+  const fetchContratLivrables = useCallback(async (contratId) => {
+    try {
+      const response = await fetch(`http://localhost:8080/api/contrats/${contratId}/livrables`)
+      if (!response.ok) throw new Error("Erreur de chargement")
+      return await response.json()
+    } catch (err) {
+      console.error("Erreur:", err)
+      setError(err.message)
+      return []
     }
   }, [])
 
@@ -97,7 +102,6 @@ const ContractManagement = () => {
     fetchOffresGagnees()
   }, [fetchContrats, fetchOffresGagnees])
 
-  // Initialize signature canvas
   useEffect(() => {
     if (showSignatureModal && canvasRef.current) {
       const canvas = canvasRef.current
@@ -113,7 +117,7 @@ const ContractManagement = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
-    setContratFormData((prev) => ({
+    setContratFormData(prev => ({
       ...prev,
       [name]: value,
     }))
@@ -121,7 +125,7 @@ const ContractManagement = () => {
 
   const handleLivrableInputChange = (e) => {
     const { name, value } = e.target
-    setLivrableFormData((prev) => ({
+    setLivrableFormData(prev => ({
       ...prev,
       [name]: value,
     }))
@@ -130,10 +134,9 @@ const ContractManagement = () => {
   const handleOffreSelect = (e) => {
     const offreId = Number.parseInt(e.target.value)
     const offre = offresGagnees.find((o) => o.idOffre === offreId)
-    console.log("Selected offer:", offre)
     if (offre) {
       setSelectedOffre(offre)
-      setContratFormData((prev) => ({
+      setContratFormData(prev => ({
         ...prev,
         offreId: offreId,
         nameClient: safeGet(offre, "opportunite.client.name", ""),
@@ -151,7 +154,6 @@ const ContractManagement = () => {
     setLoading(true)
     setError(null)
     try {
-      console.log("Creating contract with data:", contratFormData)
       const response = await fetch("http://localhost:8080/api/contrats", {
         method: "POST",
         headers: {
@@ -164,9 +166,8 @@ const ContractManagement = () => {
         throw new Error(errorData.message || "Erreur lors de la création du contrat")
       }
       const newContrat = await response.json()
-      console.log("Contract created successfully:", newContrat)
       setContrats((prev) => [...prev, newContrat])
-      fetchOffresGagnees() // Refresh won offers list
+      fetchOffresGagnees()
       toggleModal(null)
       resetForm()
     } catch (err) {
@@ -184,7 +185,6 @@ const ContractManagement = () => {
     }
     setLoading(true)
     try {
-      console.log("Signing contract:", selectedContrat.id)
       const response = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}/sign`, {
         method: "POST",
         headers: {
@@ -200,7 +200,6 @@ const ContractManagement = () => {
         throw new Error(errorData.message || "Erreur lors de la signature")
       }
       const signedContrat = await response.json()
-      console.log("Contract signed successfully:", signedContrat)
       setContrats((prev) => prev.map((c) => (c.id === signedContrat.id ? signedContrat : c)))
       setShowSignatureModal(false)
       setSignature("")
@@ -219,7 +218,6 @@ const ContractManagement = () => {
     setError(null)
     setEmailStatus((prev) => ({ ...prev, [contrat.id]: "sending" }))
     try {
-      console.log("Generating and sending PDF for contract:", contrat.id)
       const response = await fetch(`http://localhost:8080/api/contrats/${contrat.id}/generate-and-send`, {
         method: "POST",
       })
@@ -228,7 +226,6 @@ const ContractManagement = () => {
         throw new Error(errorData.message || "Erreur lors de l'envoi du contrat")
       }
       const result = await response.json()
-      console.log("PDF sent successfully:", result)
       setEmailStatus((prev) => ({ ...prev, [contrat.id]: "sent" }))
       alert(`Contrat envoyé avec succès à ${result.emailSent}`)
     } catch (err) {
@@ -245,7 +242,6 @@ const ContractManagement = () => {
     if (!selectedContrat) return
     setLoading(true)
     try {
-      console.log("Adding deliverable to contract:", selectedContrat.id)
       const response = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}/livrables`, {
         method: "POST",
         headers: {
@@ -256,17 +252,20 @@ const ContractManagement = () => {
           montant: Number.parseFloat(livrableFormData.montant),
         }),
       })
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || "Erreur lors de l'ajout du livrable")
-      }
+
+      if (!response.ok) throw new Error("Erreur lors de l'ajout")
+
       const newLivrable = await response.json()
-      console.log("Deliverable added successfully:", newLivrable)
-      setSelectedContrat((prev) => ({
-        ...prev,
-        livrables: [...(prev.livrables || []), newLivrable],
-      }))
-      // Reset form
+
+      const contratResponse = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}`)
+      const updatedContrat = await contratResponse.json()
+      const livrables = await fetchContratLivrables(selectedContrat.id)
+
+      setSelectedContrat({
+        ...updatedContrat,
+        livrables: livrables
+      })
+
       setLivrableFormData({
         titre: "",
         description: "",
@@ -276,15 +275,104 @@ const ContractManagement = () => {
         statutPaiement: "NON_PAYE",
         fichierJoint: "",
       })
+
     } catch (err) {
-      console.error("Error adding deliverable:", err)
+      console.error("Erreur:", err)
       setError(err.message)
     } finally {
       setLoading(false)
     }
   }
 
-  // Signature canvas functions
+  const handleUpdateLivrable = async (e) => {
+    e.preventDefault()
+    if (!selectedLivrable || !selectedContrat) return
+    setLoading(true)
+    try {
+      const response = await fetch(
+        `http://localhost:8080/api/contrats/${selectedContrat.id}/livrables/${selectedLivrable.id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            ...livrableFormData,
+            montant: Number.parseFloat(livrableFormData.montant),
+          }),
+        }
+      )
+
+      if (!response.ok) throw new Error("Erreur lors de la modification")
+
+      const contratResponse = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}`)
+      const updatedContrat = await contratResponse.json()
+      const livrables = await fetchContratLivrables(selectedContrat.id)
+
+      setSelectedContrat({
+        ...updatedContrat,
+        livrables: livrables
+      })
+
+      setLivrableFormData({
+        titre: "",
+        description: "",
+        dateLivraison: "",
+        montant: "",
+        statutValidation: "EN_ATTENTE",
+        statutPaiement: "NON_PAYE",
+        fichierJoint: "",
+      })
+
+      setSelectedLivrable(null)
+
+    } catch (err) {
+      console.error("Erreur:", err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleDeleteLivrable = async (contratId, livrableId) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce livrable ?")) return
+    setLoading(true)
+    try {
+      const response = await fetch(`http://localhost:8080/api/contrats/${contratId}/livrables/${livrableId}`, {
+        method: "DELETE",
+      })
+      if (!response.ok) throw new Error("Erreur lors de la suppression")
+
+      const contratResponse = await fetch(`http://localhost:8080/api/contrats/${contratId}`)
+      const updatedContrat = await contratResponse.json()
+      const livrables = await fetchContratLivrables(contratId)
+
+      setSelectedContrat({
+        ...updatedContrat,
+        livrables: livrables
+      })
+
+    } catch (err) {
+      console.error("Erreur:", err)
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSelectLivrableForEdit = (livrable) => {
+    setSelectedLivrable(livrable)
+    setLivrableFormData({
+      titre: livrable.titre,
+      description: livrable.description,
+      dateLivraison: livrable.dateLivraison ? new Date(livrable.dateLivraison).toISOString().split('T')[0] : "",
+      montant: livrable.montant.toString(),
+      statutValidation: livrable.statutValidation,
+      statutPaiement: livrable.statutPaiement,
+      fichierJoint: livrable.fichierJoint || "",
+    })
+  }
+
   const startDrawing = (e) => {
     setIsDrawing(true)
     const rect = canvasRef.current.getBoundingClientRect()
@@ -303,10 +391,9 @@ const ContractManagement = () => {
     if (!isDrawing) return
     setIsDrawing(false)
     contextRef.current.closePath()
-    // Convert canvas to base64
     const canvas = canvasRef.current
     const dataURL = canvas.toDataURL("image/png")
-    setSignature(dataURL.split(",")[1]) // Remove data:image/png;base64, prefix
+    setSignature(dataURL.split(",")[1])
   }
 
   const clearCanvas = () => {
@@ -320,14 +407,12 @@ const ContractManagement = () => {
     if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce contrat ?")) return
     setLoading(true)
     try {
-      console.log("Deleting contract:", id)
       const response = await fetch(`http://localhost:8080/api/contrats/${id}`, {
         method: "DELETE",
       })
       if (!response.ok) throw new Error("Erreur lors de la suppression")
-      console.log("Contract deleted successfully")
       setContrats((prev) => prev.filter((c) => c.id !== id))
-      fetchOffresGagnees() // Refresh won offers list
+      fetchOffresGagnees()
     } catch (err) {
       console.error("Error deleting contract:", err)
       setError(err.message)
@@ -336,9 +421,27 @@ const ContractManagement = () => {
     }
   }
 
-  const toggleModal = (modalId, contrat = null) => {
+  const toggleModal = async (modalId, contrat = null) => {
     setActiveModalId(modalId)
-    setSelectedContrat(contrat)
+    if (modalId === "livrables" && contrat) {
+      setLoading(true)
+      try {
+        const fullContratData = await fetch(`http://localhost:8080/api/contrats/${contrat.id}`)
+          .then(res => res.json())
+        const livrables = await fetchContratLivrables(contrat.id)
+        setSelectedContrat({
+          ...fullContratData,
+          livrables: livrables
+        })
+      } catch (err) {
+        console.error("Erreur:", err)
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    } else {
+      setSelectedContrat(contrat)
+    }
     if (!modalId) resetForm()
   }
 
@@ -351,6 +454,16 @@ const ContractManagement = () => {
       offreId: null,
     })
     setSelectedOffre(null)
+    setLivrableFormData({
+      titre: "",
+      description: "",
+      dateLivraison: "",
+      montant: "",
+      statutValidation: "EN_ATTENTE",
+      statutPaiement: "NON_PAYE",
+      fichierJoint: "",
+    })
+    setSelectedLivrable(null)
   }
 
   const toggleExpandRow = (rowId) => {
@@ -394,16 +507,13 @@ const ContractManagement = () => {
     setLoading(true)
     setError(null)
     try {
-      console.log("Downloading PDF for contract:", contrat.id)
       const response = await fetch(`http://localhost:8080/api/contrats/${contrat.id}/generate-pdf`, {
         method: "POST",
       })
       if (!response.ok) {
         throw new Error("Erreur lors de la génération du PDF")
       }
-      // Créer un blob à partir de la réponse
       const blob = await response.blob()
-      // Créer un lien de téléchargement
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
@@ -412,7 +522,6 @@ const ContractManagement = () => {
       link.click()
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
-      console.log("PDF downloaded successfully")
       alert("Document téléchargé avec succès !")
     } catch (err) {
       console.error("Error downloading PDF:", err)
@@ -424,8 +533,6 @@ const ContractManagement = () => {
 
   const handleDownloadDocument = async (document) => {
     try {
-      console.log("Downloading document:", document)
-      // Utiliser l'ID du document pour télécharger via l'API
       if (document.id) {
         const response = await fetch(`http://localhost:8080/api/documents/${document.id}/download`)
         if (!response.ok) {
@@ -440,7 +547,6 @@ const ContractManagement = () => {
         link.click()
         document.body.removeChild(link)
         window.URL.revokeObjectURL(url)
-        console.log("Document downloaded successfully")
       } else {
         alert("Document non disponible pour le téléchargement")
       }
@@ -469,12 +575,10 @@ const ContractManagement = () => {
         </div>
       )}
 
-      {/* Header */}
       <div
         className="rounded-3 p-3 d-flex shadow-lg justify-content-between"
         style={{
-          background:
-            "linear-gradient(to right,rgba(4, 4, 4, 0.77),rgba(4, 4, 4, 0.77), rgba(45, 79, 39, 0.77), rgba(96, 54, 39, 0.77))",
+          background: "linear-gradient(to right,rgba(4, 4, 4, 0.77),rgba(4, 4, 4, 0.77), rgba(45, 79, 39, 0.77), rgba(96, 54, 39, 0.77))",
           width: "95%",
           marginBottom: "-40px",
           zIndex: 1,
@@ -493,7 +597,6 @@ const ContractManagement = () => {
         </div>
       </div>
 
-      {/* Statistics Cards */}
       <div className="w-100 mb-4" style={{ paddingTop: "60px" }}>
         <div className="row g-3">
           <div className="col-md-3">
@@ -535,7 +638,6 @@ const ContractManagement = () => {
         </div>
       </div>
 
-      {/* Main Table */}
       <div
         className="d-flex p-3 flex-column shadow-lg rounded-3 pt-5 w-100 border"
         style={{
@@ -827,7 +929,6 @@ const ContractManagement = () => {
         </div>
       </div>
 
-      {/* Create Contract Modal */}
       {activeModalId === "createContrat" && (
         <div
           className="modal show"
@@ -963,7 +1064,6 @@ const ContractManagement = () => {
         </div>
       )}
 
-      {/* Signature Modal */}
       {showSignatureModal && (
         <div
           className="modal show"
@@ -1070,7 +1170,6 @@ const ContractManagement = () => {
         </div>
       )}
 
-      {/* Livrables Modal */}
       {activeModalId === "livrables" && selectedContrat && (
         <div
           className="modal show"
@@ -1089,16 +1188,15 @@ const ContractManagement = () => {
                 <button type="button" className="btn-close" onClick={() => toggleModal(null)}></button>
               </div>
               <div className="modal-body">
-                {/* Add Livrable Form */}
                 <div className="card mb-4">
                   <div className="card-header bg-primary text-white">
                     <h5 className="mb-0">
                       <i className="fas fa-plus me-2"></i>
-                      Ajouter un Livrable
+                      {selectedLivrable ? "Modifier le Livrable" : "Ajouter un Livrable"}
                     </h5>
                   </div>
                   <div className="card-body">
-                    <form onSubmit={handleAddLivrable}>
+                    <form onSubmit={selectedLivrable ? handleUpdateLivrable : handleAddLivrable}>
                       <div className="row g-3">
                         <div className="col-md-6">
                           <label className="form-label" style={{ color: "black" }}>
@@ -1153,6 +1251,38 @@ const ContractManagement = () => {
                             placeholder="Chemin ou URL du fichier"
                           />
                         </div>
+                        <div className="col-md-6">
+                          <label className="form-label" style={{ color: "black" }}>
+                            Statut de Validation
+                          </label>
+                          <select
+                            className="form-control"
+                            name="statutValidation"
+                            value={livrableFormData.statutValidation}
+                            onChange={handleLivrableInputChange}
+                            required
+                          >
+                            <option value="EN_ATTENTE">En attente</option>
+                            <option value="VALIDE">Validé</option>
+                            <option value="REFUSE">Refusé</option>
+                          </select>
+                        </div>
+                        <div className="col-md-6">
+                          <label className="form-label" style={{ color: "black" }}>
+                            Statut de Paiement
+                          </label>
+                          <select
+                            className="form-control"
+                            name="statutPaiement"
+                            value={livrableFormData.statutPaiement}
+                            onChange={handleLivrableInputChange}
+                            required
+                          >
+                            <option value="NON_PAYE">Non payé</option>
+                            <option value="PAYE">Payé</option>
+                            <option value="SOLDE">Soldé</option>
+                          </select>
+                        </div>
                         <div className="col-12">
                           <label className="form-label" style={{ color: "black" }}>
                             Description
@@ -1168,26 +1298,38 @@ const ContractManagement = () => {
                           />
                         </div>
                         <div className="col-12">
-                          <button type="submit" className="btn btn-primary" disabled={loading}>
+                          <button type="submit" className="btn btn-primary me-2" disabled={loading}>
                             {loading ? (
-                              <>
-                                <span className="spinner-border spinner-border-sm me-2"></span>
-                                Ajout...
-                              </>
-                            ) : (
-                              <>
-                                <i className="fas fa-plus me-2"></i>
-                                Ajouter le Livrable
-                              </>
-                            )}
+                              <span className="spinner-border spinner-border-sm me-2"></span>
+                            ) : null}
+                            {selectedLivrable ? "Modifier" : "Ajouter"}
                           </button>
+                          {selectedLivrable && (
+                            <button
+                              type="button"
+                              className="btn btn-secondary"
+                              onClick={() => {
+                                setSelectedLivrable(null)
+                                setLivrableFormData({
+                                  titre: "",
+                                  description: "",
+                                  dateLivraison: "",
+                                  montant: "",
+                                  statutValidation: "EN_ATTENTE",
+                                  statutPaiement: "NON_PAYE",
+                                  fichierJoint: "",
+                                })
+                              }}
+                            >
+                              Annuler
+                            </button>
+                          )}
                         </div>
                       </div>
                     </form>
                   </div>
                 </div>
 
-                {/* Livrables List */}
                 <div className="card">
                   <div className="card-header bg-success text-white">
                     <h5 className="mb-0">
@@ -1234,37 +1376,35 @@ const ContractManagement = () => {
                                   <strong>{livrable.montant} MAD</strong>
                                 </td>
                                 <td>
-                                  <span
-                                    className={`badge ${
-                                      livrable.statutValidation === "VALIDE"
-                                        ? "bg-success"
-                                        : livrable.statutValidation === "REFUSE"
-                                          ? "bg-danger"
-                                          : "bg-warning"
-                                    }`}
-                                  >
+                                  <span className={`badge ${
+                                    livrable.statutValidation === "VALIDE" ? "bg-success" :
+                                    livrable.statutValidation === "REFUSE" ? "bg-danger" : "bg-warning"
+                                  }`}>
                                     {livrable.statutValidation}
                                   </span>
                                 </td>
                                 <td>
-                                  <span
-                                    className={`badge ${
-                                      livrable.statutPaiement === "PAYE"
-                                        ? "bg-success"
-                                        : livrable.statutPaiement === "SOLDE"
-                                          ? "bg-info"
-                                          : "bg-warning"
-                                    }`}
-                                  >
+                                  <span className={`badge ${
+                                    livrable.statutPaiement === "PAYE" ? "bg-success" :
+                                    livrable.statutPaiement === "SOLDE" ? "bg-info" : "bg-warning"
+                                  }`}>
                                     {livrable.statutPaiement}
                                   </span>
                                 </td>
                                 <td>
                                   <div className="btn-group" role="group">
-                                    <button className="btn btn-sm btn-outline-primary" title="Modifier">
+                                    <button
+                                      className="btn btn-sm btn-outline-primary"
+                                      title="Modifier"
+                                      onClick={() => handleSelectLivrableForEdit(livrable)}
+                                    >
                                       <i className="fas fa-edit"></i>
                                     </button>
-                                    <button className="btn btn-sm btn-outline-danger" title="Supprimer">
+                                    <button
+                                      className="btn btn-sm btn-outline-danger"
+                                      title="Supprimer"
+                                      onClick={() => handleDeleteLivrable(selectedContrat.id, livrable.id)}
+                                    >
                                       <i className="fas fa-trash"></i>
                                     </button>
                                   </div>
