@@ -1,40 +1,71 @@
 "use client"
-
 import { useState, useEffect, useCallback } from "react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
 import "../styles/dashboard.css"
-import CustomChart from "./customChart" // Assuming CustomChart is in the same directory or correctly imported
+import CustomChart from "./customChart"
+import authService from "../services/authService"
+import api from "../services/api"
 
 function Admin_Dashboard_Content() {
   const [selected, setSelected] = useState("")
   const [totalOpportunities, setTotalOpportunities] = useState(0)
   const [totalClients, setTotalClients] = useState(0)
   const [totalOffres, setTotalOffres] = useState(0)
+  const [totalContrats, setTotalContrats] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const user = authService.getCurrentUser()
 
   const fetchDashboardData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [opportunitiesRes, clientsRes, offresRes] = await Promise.all([
-        fetch("http://localhost:8080/api/opportunites"),
-        fetch("http://localhost:8080/api/clients"),
-        fetch("http://localhost:8080/api/offres"),
-      ])
+      const requests = []
 
-      if (!opportunitiesRes.ok) throw new Error(`HTTP error! Opportunities status: ${opportunitiesRes.status}`)
-      if (!clientsRes.ok) throw new Error(`HTTP error! Clients status: ${clientsRes.status}`)
-      if (!offresRes.ok) throw new Error(`HTTP error! Offres status: ${offresRes.status}`)
+      // Tous les utilisateurs peuvent voir les statistiques
+      if (authService.canViewClients()) {
+        requests.push(api.get("/clients"))
+      }
+      if (authService.canViewOpportunities()) {
+        requests.push(api.get("/opportunites"))
+      }
+      if (authService.canViewOffers()) {
+        requests.push(api.get("/offres"))
+      }
+      if (authService.canViewContracts()) {
+        requests.push(api.get("/contrats"))
+      }
 
-      const opportunitiesData = await opportunitiesRes.json()
-      const clientsData = await clientsRes.json()
-      const offresData = await offresRes.json()
+      const responses = await Promise.all(requests)
 
-      setTotalOpportunities(opportunitiesData.length)
+      let clientsData = []
+      let opportunitiesData = []
+      let offresData = []
+      let contratsData = []
+
+      let responseIndex = 0
+      if (authService.canViewClients()) {
+        clientsData = responses[responseIndex]?.data || []
+        responseIndex++
+      }
+      if (authService.canViewOpportunities()) {
+        opportunitiesData = responses[responseIndex]?.data || []
+        responseIndex++
+      }
+      if (authService.canViewOffers()) {
+        offresData = responses[responseIndex]?.data || []
+        responseIndex++
+      }
+      if (authService.canViewContracts()) {
+        contratsData = responses[responseIndex]?.data || []
+        responseIndex++
+      }
+
       setTotalClients(clientsData.length)
+      setTotalOpportunities(opportunitiesData.length)
       setTotalOffres(offresData.length)
+      setTotalContrats(contratsData.length)
     } catch (err) {
       console.error("Error fetching dashboard data:", err)
       setError("Erreur lors du chargement des données du tableau de bord: " + err.message)
@@ -69,23 +100,30 @@ function Admin_Dashboard_Content() {
     datasets: [
       {
         label: "Clients",
-        data: [20, 35, 50, 40, 65, 75, 36, 50, 45, 60, 55, 70], // Static data, replace with fetched data if available
+        data: [20, 35, 50, 40, 65, 75, 36, 50, 45, 60, 55, 70],
         backgroundColor: "rgba(40, 193, 68, 0.32)",
         borderColor: "rgba(75, 192, 192, 0.68)",
         borderWidth: 0,
       },
       {
         label: "Opportunités",
-        data: [50, 70, 90, 110, 130, 150, 120, 200, 180, 160, 140, 170], // Static data, replace with fetched data if available
+        data: [50, 70, 90, 110, 130, 150, 120, 200, 180, 160, 140, 170],
         backgroundColor: "rgba(9, 98, 241, 0.32)",
         borderColor: "rgba(9, 98, 241, 0.68)",
         borderWidth: 0,
       },
       {
         label: "Offres",
-        data: [10, 15, 20, 18, 22, 25, 18, 30, 27, 24, 21, 26], // Static data, replace with fetched data if available
+        data: [10, 15, 20, 18, 22, 25, 18, 30, 27, 24, 21, 26],
         backgroundColor: "rgba(195, 35, 160, 0.32)",
         borderColor: "rgba(195, 35, 160, 0.68)",
+        borderWidth: 0,
+      },
+      {
+        label: "Contrats",
+        data: [5, 8, 12, 10, 15, 18, 14, 20, 17, 16, 13, 19],
+        backgroundColor: "rgba(255, 193, 7, 0.32)",
+        borderColor: "rgba(255, 193, 7, 0.68)",
         borderWidth: 0,
       },
     ],
@@ -108,6 +146,21 @@ function Admin_Dashboard_Content() {
     },
   }
 
+  const getRoleDisplayName = (role) => {
+    switch (role) {
+      case "ADMIN":
+        return "Administrateur"
+      case "GESTION_CLIENTS_OPPORTUNITES":
+        return "Gestion Clients & Opportunités"
+      case "GESTION_OFFRES":
+        return "Gestion des Offres"
+      case "GESTION_CONTRATS":
+        return "Gestion des Contrats"
+      default:
+        return role
+    }
+  }
+
   return (
     <div className="d-flex flex-column p-3 pb-0 flex-grow-1">
       {error && (
@@ -116,7 +169,19 @@ function Admin_Dashboard_Content() {
           <button type="button" className="btn-close" onClick={() => setError(null)}></button>
         </div>
       )}
-      {/* statistics */}
+
+      {/* Welcome message */}
+      <div className="alert alert-info mb-3">
+        <h5>
+          Bienvenue, {user?.firstName} {user?.lastName}!
+        </h5>
+        <p className="mb-0">Rôle: {getRoleDisplayName(user?.role)}</p>
+        {user?.role === "ADMIN" && (
+          <small className="text-success">✅ Accès complet à toutes les fonctionnalités</small>
+        )}
+      </div>
+
+      {/* Statistics */}
       <div
         className="d-flex p-3 justify-content-between align-items-center mb-2"
         style={{ width: "100%", backgroundColor: "white" }}
@@ -129,43 +194,10 @@ function Admin_Dashboard_Content() {
           </div>
         ) : (
           <>
-            {/* Opportunités */}
-            <div
-              className="flex-rows rounded-3 shadow p-3 me-4"
-              style={{ width: "30%", height: "auto", backgroundColor: "white" }}
-            >
-              <div className="d-flex flex-row justify-content-between mb-3">
-                <div className="d-flex flex-column">
-                  <h5 className="mb-1" style={{ color: "#C9A13C", fontFamily: "corbel" }}>
-                    Total des opportunités
-                  </h5>
-                  <h4 style={{ color: "black", fontFamily: "consolas", fontWeight: "bold" }}>{totalOpportunities}</h4>
-                </div>
-                <div className="d-flex flex-row">
-                  <button className="p-4 pt-1 pb-1 btnn" type="button">
-                    <div id="container-stars">
-                      <div id="stars"></div>
-                    </div>
-                    <div id="glow">
-                      <div className="circle"></div>
-                      <div className="circle"></div>
-                    </div>
-                    <i className="fa-solid fa-table-cells-large" style={{ width: "20px", color: "white" }}></i>
-                  </button>
-                </div>
-              </div>
-              <hr className="custom-hr" />
-              <div className="d-flex flex-row justify-content-center align-items-center">
-                <h6 className="me-2" style={{ color: "green", fontFamily: "segoe print", fontWeight: "bold" }}>
-                  +2
-                </h6>
-                <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouvelles opportunités</h6>
-              </div>
-            </div>
             {/* Clients */}
             <div
               className="flex-rows rounded-3 shadow p-3 me-4"
-              style={{ width: "30%", height: "auto", backgroundColor: "white" }}
+              style={{ width: "23%", height: "auto", backgroundColor: "white" }}
             >
               <div className="d-flex flex-row justify-content-between mb-3">
                 <div className="d-flex flex-column">
@@ -195,10 +227,45 @@ function Admin_Dashboard_Content() {
                 <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouveaux clients</h6>
               </div>
             </div>
+
+            {/* Opportunités */}
+            <div
+              className="flex-rows rounded-3 shadow p-3 me-4"
+              style={{ width: "23%", height: "auto", backgroundColor: "white" }}
+            >
+              <div className="d-flex flex-row justify-content-between mb-3">
+                <div className="d-flex flex-column">
+                  <h5 className="mb-1" style={{ color: "#C9A13C", fontFamily: "corbel" }}>
+                    Total des Opportunités
+                  </h5>
+                  <h4 style={{ color: "black", fontFamily: "consolas", fontWeight: "bold" }}>{totalOpportunities}</h4>
+                </div>
+                <div className="d-flex flex-row">
+                  <button className="p-4 pt-1 pb-1 btnn" type="button">
+                    <div id="container-stars">
+                      <div id="stars"></div>
+                    </div>
+                    <div id="glow">
+                      <div className="circle"></div>
+                      <div className="circle"></div>
+                    </div>
+                    <i className="fa-solid fa-lightbulb" style={{ width: "20px", color: "white" }}></i>
+                  </button>
+                </div>
+              </div>
+              <hr className="custom-hr" />
+              <div className="d-flex flex-row justify-content-center align-items-center">
+                <h6 className="me-2" style={{ color: "green", fontFamily: "segoe print", fontWeight: "bold" }}>
+                  +2
+                </h6>
+                <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouvelles opportunités</h6>
+              </div>
+            </div>
+
             {/* Offres */}
             <div
-              className="flex-rows rounded-3 shadow p-3"
-              style={{ width: "30%", height: "auto", backgroundColor: "white" }}
+              className="flex-rows rounded-3 shadow p-3 me-4"
+              style={{ width: "23%", height: "auto", backgroundColor: "white" }}
             >
               <div className="d-flex flex-row justify-content-between mb-3">
                 <div className="d-flex flex-column">
@@ -216,7 +283,7 @@ function Admin_Dashboard_Content() {
                       <div className="circle"></div>
                       <div className="circle"></div>
                     </div>
-                    <i className="fa-solid fa-user-graduate" style={{ width: "20px", color: "white" }}></i>
+                    <i className="fa-solid fa-file-invoice" style={{ width: "20px", color: "white" }}></i>
                   </button>
                 </div>
               </div>
@@ -228,9 +295,44 @@ function Admin_Dashboard_Content() {
                 <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouvelles Offres</h6>
               </div>
             </div>
+
+            {/* Contrats */}
+            <div
+              className="flex-rows rounded-3 shadow p-3"
+              style={{ width: "23%", height: "auto", backgroundColor: "white" }}
+            >
+              <div className="d-flex flex-row justify-content-between mb-3">
+                <div className="d-flex flex-column">
+                  <h5 className="mb-1" style={{ color: "#C9A13C", fontFamily: "corbel" }}>
+                    Total des Contrats
+                  </h5>
+                  <h4 style={{ color: "black", fontFamily: "consolas", fontWeight: "bold" }}>{totalContrats}</h4>
+                </div>
+                <div className="d-flex flex-row">
+                  <button className="p-4 pt-1 pb-1 btnn" type="button">
+                    <div id="container-stars">
+                      <div id="stars"></div>
+                    </div>
+                    <div id="glow">
+                      <div className="circle"></div>
+                      <div className="circle"></div>
+                    </div>
+                    <i className="fa-solid fa-file-contract" style={{ width: "20px", color: "white" }}></i>
+                  </button>
+                </div>
+              </div>
+              <hr className="custom-hr" />
+              <div className="d-flex flex-row justify-content-center align-items-center">
+                <h6 className="me-2" style={{ color: "green", fontFamily: "segoe print", fontWeight: "bold" }}>
+                  +8
+                </h6>
+                <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouveaux Contrats</h6>
+              </div>
+            </div>
           </>
         )}
       </div>
+
       {/* Chart Section */}
       <div
         className="d-flex p-3 justify-content-center align-items-center justify-content-between mt-auto"
@@ -274,6 +376,7 @@ function Admin_Dashboard_Content() {
             <CustomChart data={data} options={options} />
           </div>
         </div>
+
         <div
           className="d-flex flex-column rounded-3 shadow-lg p-4 align-items-center"
           style={{ width: "40%", height: "100%", backgroundColor: "white" }}

@@ -1,14 +1,15 @@
 "use client"
-
 import React, { useState, useEffect, useCallback, useRef } from "react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
+import authService from "../services/authService"
+import api from "../services/api"
 
 const safeGet = (obj, path, defaultValue = null) => {
   try {
     return path.split(".").reduce((current, key) => current && current[key], obj) || defaultValue
   } catch (error) {
-    console.warn(`SafeGet error for path "${path}":`, error)
+    // Suppression du log d'erreur
     return defaultValue
   }
 }
@@ -29,9 +30,12 @@ const ContractManagement = () => {
   const [signature, setSignature] = useState("")
   const [signerName, setSignerName] = useState("")
   const [isDrawing, setIsDrawing] = useState(false)
-
   const canvasRef = useRef(null)
   const contextRef = useRef(null)
+
+  // Permission checks
+  const canModify = authService.canModifyContracts()
+  const canView = authService.canViewContracts()
 
   const [contratFormData, setContratFormData] = useState({
     startDate: "",
@@ -39,6 +43,7 @@ const ContractManagement = () => {
     details: "",
     nameClient: "",
     offreId: null,
+    budget: "",
   })
 
   const [livrableFormData, setLivrableFormData] = useState({
@@ -55,15 +60,15 @@ const ContractManagement = () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch("http://localhost:8080/api/contrats")
-      if (!response.ok) {
-        const errorText = await response.text()
+      const response = await api.get("/contrats")
+      if (response.status !== 200) {
+        const errorText = response.statusText
         throw new Error(`HTTP ${response.status}: ${errorText}`)
       }
-      const data = await response.json()
+      const data = response.data
       setContrats(data)
     } catch (err) {
-      console.error("Error fetching contracts:", err)
+      // Suppression du log d'erreur
       setError(`Erreur lors du chargement des contrats: ${err.message}`)
     } finally {
       setLoading(false)
@@ -72,35 +77,43 @@ const ContractManagement = () => {
 
   const fetchOffresGagnees = useCallback(async () => {
     try {
-      const response = await fetch("http://localhost:8080/api/offres/gagnees-sans-contrat")
-      if (!response.ok) {
-        const errorText = await response.text()
+      const response = await api.get("/offres/gagnees-sans-contrat")
+      if (response.status !== 200) {
+        const errorText = response.statusText
         throw new Error(`HTTP ${response.status}: ${errorText}`)
       }
-      const data = await response.json()
+      const data = response.data
       setOffresGagnees(data)
     } catch (err) {
-      console.error("Error fetching won offers:", err)
-      setError(`Erreur lors du chargement des offres gagnées: ${err.message}`)
+      // Suppression du log d'erreur
+      // Si c'est une erreur 403, ne pas afficher d'erreur générale
+      if (err.response?.status === 403) {
+        // Suppression du log d'avertissement
+        setOffresGagnees([]) // Définir une liste vide
+      } else {
+        setError(`Erreur lors du chargement des offres gagnées: ${err.message}`)
+      }
     }
   }, [])
 
   const fetchContratLivrables = useCallback(async (contratId) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/contrats/${contratId}/livrables`)
-      if (!response.ok) throw new Error("Erreur de chargement")
-      return await response.json()
+      const response = await api.get(`/contrats/${contratId}/livrables`)
+      if (response.status !== 200) throw new Error("Erreur de chargement")
+      return response.data
     } catch (err) {
-      console.error("Erreur:", err)
+      // Suppression du log d'erreur
       setError(err.message)
       return []
     }
   }, [])
 
   useEffect(() => {
-    fetchContrats()
-    fetchOffresGagnees()
-  }, [fetchContrats, fetchOffresGagnees])
+    if (canView) {
+      fetchContrats()
+      fetchOffresGagnees()
+    }
+  }, [fetchContrats, fetchOffresGagnees, canView])
 
   useEffect(() => {
     if (showSignatureModal && canvasRef.current) {
@@ -117,7 +130,7 @@ const ContractManagement = () => {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target
-    setContratFormData(prev => ({
+    setContratFormData((prev) => ({
       ...prev,
       [name]: value,
     }))
@@ -125,7 +138,7 @@ const ContractManagement = () => {
 
   const handleLivrableInputChange = (e) => {
     const { name, value } = e.target
-    setLivrableFormData(prev => ({
+    setLivrableFormData((prev) => ({
       ...prev,
       [name]: value,
     }))
@@ -136,7 +149,7 @@ const ContractManagement = () => {
     const offre = offresGagnees.find((o) => o.idOffre === offreId)
     if (offre) {
       setSelectedOffre(offre)
-      setContratFormData(prev => ({
+      setContratFormData((prev) => ({
         ...prev,
         offreId: offreId,
         nameClient: safeGet(offre, "opportunite.client.name", ""),
@@ -147,89 +160,113 @@ const ContractManagement = () => {
 
   const handleCreateContrat = async (e) => {
     e.preventDefault()
-    if (!selectedOffre) {
+    if (!canModify) return
+
+    // Validation adaptée selon la disponibilité des offres
+    if (offresGagnees.length > 0 && !selectedOffre) {
       setError("Veuillez sélectionner une offre")
       return
     }
+    if (offresGagnees.length === 0 && (!contratFormData.nameClient || !contratFormData.details)) {
+      setError("Veuillez remplir tous les champs obligatoires")
+      return
+    }
+
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch("http://localhost:8080/api/contrats", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(contratFormData),
-      })
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || "Erreur lors de la création du contrat")
+      // Préparer les données selon le type de création
+      const dataToSend = { ...contratFormData }
+      if (offresGagnees.length === 0) {
+        // Pour les contrats manuels, supprimer offreId
+        delete dataToSend.offreId
       }
-      const newContrat = await response.json()
+
+      const response = await api.post("/contrats", dataToSend)
+
+      // Vérifier si la création a réussi (200 ou 201)
+      if (response.status !== 200 && response.status !== 201) {
+        const errorData = response.data
+        throw new Error(errorData.message || `Erreur HTTP ${response.status}`)
+      }
+
+      const newContrat = response.data
       setContrats((prev) => [...prev, newContrat])
       fetchOffresGagnees()
       toggleModal(null)
       resetForm()
     } catch (err) {
-      console.error("Error creating contract:", err)
-      setError(err.message)
+      // Afficher une erreur plus détaillée
+      let errorMessage = "Erreur lors de la création du contrat"
+      if (err.response?.data?.message) {
+        errorMessage = err.response.data.message
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
   }
 
   const handleSignContract = async () => {
+    if (!canModify) return
     if (!selectedContrat || !signature || !signerName) {
       setError("Veuillez remplir tous les champs de signature")
       return
     }
     setLoading(true)
     try {
-      const response = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}/sign`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          signature: signature,
-          signerName: signerName,
-        }),
+      const response = await api.post(`/contrats/${selectedContrat.id}/sign`, {
+        signature: signature,
+        signerName: signerName,
       })
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || "Erreur lors de la signature")
+
+      if (response.status !== 200 && response.status !== 201) {
+        const errorData = response.data
+        throw new Error(errorData.message || `Erreur HTTP ${response.status}`)
       }
-      const signedContrat = await response.json()
+
+      const signedContrat = response.data
       setContrats((prev) => prev.map((c) => (c.id === signedContrat.id ? signedContrat : c)))
       setShowSignatureModal(false)
       setSignature("")
       setSignerName("")
       clearCanvas()
     } catch (err) {
-      console.error("Error signing contract:", err)
-      setError(err.message)
+      let errorMessage = "Erreur lors de la signature"
+      if (err.response?.data?.message) {
+        errorMessage = err.response.data.message
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
   }
 
   const handleGenerateAndSendPDF = async (contrat) => {
+    if (!canModify) return
     setLoading(true)
     setError(null)
     setEmailStatus((prev) => ({ ...prev, [contrat.id]: "sending" }))
     try {
-      const response = await fetch(`http://localhost:8080/api/contrats/${contrat.id}/generate-and-send`, {
-        method: "POST",
-      })
-      if (!response.ok) {
-        const errorData = await response.json()
+      const response = await api.post(`/contrats/${contrat.id}/generate-and-send`)
+      if (response.status !== 200) {
+        const errorData = response.data
         throw new Error(errorData.message || "Erreur lors de l'envoi du contrat")
       }
-      const result = await response.json()
+      const result = response.data
       setEmailStatus((prev) => ({ ...prev, [contrat.id]: "sent" }))
       alert(`Contrat envoyé avec succès à ${result.emailSent}`)
     } catch (err) {
-      console.error("Error sending PDF:", err)
       setError(err.message)
       setEmailStatus((prev) => ({ ...prev, [contrat.id]: "error" }))
     } finally {
@@ -239,33 +276,30 @@ const ContractManagement = () => {
 
   const handleAddLivrable = async (e) => {
     e.preventDefault()
+    if (!canModify) return
     if (!selectedContrat) return
     setLoading(true)
     try {
-      const response = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}/livrables`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...livrableFormData,
-          montant: Number.parseFloat(livrableFormData.montant),
-        }),
+      const response = await api.post(`/contrats/${selectedContrat.id}/livrables`, {
+        ...livrableFormData,
+        montant: Number.parseFloat(livrableFormData.montant),
       })
 
-      if (!response.ok) throw new Error("Erreur lors de l'ajout")
+      // Accepter les codes 200 et 201
+      if (response.status !== 200 && response.status !== 201) {
+        const errorData = response.data
+        throw new Error(errorData.message || `Erreur HTTP ${response.status}`)
+      }
 
-      const newLivrable = await response.json()
+      const newLivrable = response.data
 
-      const contratResponse = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}`)
-      const updatedContrat = await contratResponse.json()
+      const contratResponse = await api.get(`/contrats/${selectedContrat.id}`)
+      const updatedContrat = contratResponse.data
       const livrables = await fetchContratLivrables(selectedContrat.id)
-
       setSelectedContrat({
         ...updatedContrat,
-        livrables: livrables
+        livrables: livrables,
       })
-
       setLivrableFormData({
         titre: "",
         description: "",
@@ -275,10 +309,18 @@ const ContractManagement = () => {
         statutPaiement: "NON_PAYE",
         fichierJoint: "",
       })
-
     } catch (err) {
-      console.error("Erreur:", err)
-      setError(err.message)
+      // Afficher une erreur plus détaillée
+      let errorMessage = "Erreur lors de l'ajout du livrable"
+      if (err.response?.data?.message) {
+        errorMessage = err.response.data.message
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -286,34 +328,27 @@ const ContractManagement = () => {
 
   const handleUpdateLivrable = async (e) => {
     e.preventDefault()
+    if (!canModify) return
     if (!selectedLivrable || !selectedContrat) return
     setLoading(true)
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/contrats/${selectedContrat.id}/livrables/${selectedLivrable.id}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            ...livrableFormData,
-            montant: Number.parseFloat(livrableFormData.montant),
-          }),
-        }
-      )
-
-      if (!response.ok) throw new Error("Erreur lors de la modification")
-
-      const contratResponse = await fetch(`http://localhost:8080/api/contrats/${selectedContrat.id}`)
-      const updatedContrat = await contratResponse.json()
-      const livrables = await fetchContratLivrables(selectedContrat.id)
-
-      setSelectedContrat({
-        ...updatedContrat,
-        livrables: livrables
+      const response = await api.put(`/contrats/${selectedContrat.id}/livrables/${selectedLivrable.id}`, {
+        ...livrableFormData,
+        montant: Number.parseFloat(livrableFormData.montant),
       })
 
+      if (response.status !== 200 && response.status !== 201) {
+        const errorData = response.data
+        throw new Error(errorData.message || `Erreur HTTP ${response.status}`)
+      }
+
+      const contratResponse = await api.get(`/contrats/${selectedContrat.id}`)
+      const updatedContrat = contratResponse.data
+      const livrables = await fetchContratLivrables(selectedContrat.id)
+      setSelectedContrat({
+        ...updatedContrat,
+        livrables: livrables,
+      })
       setLivrableFormData({
         titre: "",
         description: "",
@@ -323,38 +358,53 @@ const ContractManagement = () => {
         statutPaiement: "NON_PAYE",
         fichierJoint: "",
       })
-
       setSelectedLivrable(null)
-
     } catch (err) {
-      console.error("Erreur:", err)
-      setError(err.message)
+      let errorMessage = "Erreur lors de la modification du livrable"
+      if (err.response?.data?.message) {
+        errorMessage = err.response.data.message
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
   }
 
   const handleDeleteLivrable = async (contratId, livrableId) => {
+    if (!canModify) return
     if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce livrable ?")) return
     setLoading(true)
     try {
-      const response = await fetch(`http://localhost:8080/api/contrats/${contratId}/livrables/${livrableId}`, {
-        method: "DELETE",
-      })
-      if (!response.ok) throw new Error("Erreur lors de la suppression")
+      const response = await api.delete(`/contrats/${contratId}/livrables/${livrableId}`)
 
-      const contratResponse = await fetch(`http://localhost:8080/api/contrats/${contratId}`)
-      const updatedContrat = await contratResponse.json()
+      if (response.status !== 200 && response.status !== 204) {
+        const errorData = response.data
+        throw new Error(errorData.message || `Erreur HTTP ${response.status}`)
+      }
+
+      const contratResponse = await api.get(`/contrats/${contratId}`)
+      const updatedContrat = contratResponse.data
       const livrables = await fetchContratLivrables(contratId)
-
       setSelectedContrat({
         ...updatedContrat,
-        livrables: livrables
+        livrables: livrables,
       })
-
     } catch (err) {
-      console.error("Erreur:", err)
-      setError(err.message)
+      let errorMessage = "Erreur lors de la suppression du livrable"
+      if (err.response?.data?.message) {
+        errorMessage = err.response.data.message
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -365,7 +415,7 @@ const ContractManagement = () => {
     setLivrableFormData({
       titre: livrable.titre,
       description: livrable.description,
-      dateLivraison: livrable.dateLivraison ? new Date(livrable.dateLivraison).toISOString().split('T')[0] : "",
+      dateLivraison: livrable.dateLivraison ? new Date(livrable.dateLivraison).toISOString().split("T")[0] : "",
       montant: livrable.montant.toString(),
       statutValidation: livrable.statutValidation,
       statutPaiement: livrable.statutPaiement,
@@ -374,6 +424,7 @@ const ContractManagement = () => {
   }
 
   const startDrawing = (e) => {
+    if (!canModify) return
     setIsDrawing(true)
     const rect = canvasRef.current.getBoundingClientRect()
     contextRef.current.beginPath()
@@ -381,14 +432,14 @@ const ContractManagement = () => {
   }
 
   const draw = (e) => {
-    if (!isDrawing) return
+    if (!isDrawing || !canModify) return
     const rect = canvasRef.current.getBoundingClientRect()
     contextRef.current.lineTo(e.clientX - rect.left, e.clientY - rect.top)
     contextRef.current.stroke()
   }
 
   const stopDrawing = () => {
-    if (!isDrawing) return
+    if (!isDrawing || !canModify) return
     setIsDrawing(false)
     contextRef.current.closePath()
     const canvas = canvasRef.current
@@ -397,6 +448,7 @@ const ContractManagement = () => {
   }
 
   const clearCanvas = () => {
+    if (!canModify) return
     const canvas = canvasRef.current
     const context = canvas.getContext("2d")
     context.clearRect(0, 0, canvas.width, canvas.height)
@@ -404,61 +456,45 @@ const ContractManagement = () => {
   }
 
   const handleDeleteContrat = async (id) => {
-    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce contrat ?")) return;
-
-    setLoading(true);
-    setError(null);
-
+    if (!canModify) return
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer ce contrat ?")) return
+    setLoading(true)
+    setError(null)
     try {
-      console.log("Tentative de suppression du contrat ID:", id);
-      const response = await fetch(`http://localhost:8080/api/contrats/${id}`, {
-        method: "DELETE",
-      });
-
-      console.log("Réponse reçue:", response.status);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        console.error("Détails de l'erreur:", errorData);
-        throw new Error(errorData.message || `Erreur HTTP ${response.status}`);
+      const response = await api.delete(`/contrats/${id}`)
+      if (response.status !== 204) {
+        const errorData = response.data
+        throw new Error(errorData.message || `Erreur HTTP ${response.status}`)
       }
-
       // Mise à jour optimiste de l'état local
-      setContrats(prevContrats => {
-        const newContrats = prevContrats.filter(contrat => contrat.id !== id);
-        console.log("Nouvelle liste de contrats après suppression:", newContrats);
-        return newContrats;
-      });
-
+      setContrats((prevContrats) => {
+        const newContrats = prevContrats.filter((contrat) => contrat.id !== id)
+        return newContrats
+      })
       // Rafraîchir les données
-      await fetchOffresGagnees();
-      console.log("Suppression réussie et données rafraîchies");
-
+      await fetchOffresGagnees()
     } catch (err) {
-      console.error("Échec de la suppression:", err);
-      setError(`Échec de la suppression du contrat: ${err.message}`);
-
+      setError(`Échec de la suppression du contrat: ${err.message}`)
       // Recharger les données pour synchronisation
-      await fetchContrats();
+      await fetchContrats()
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   const toggleModal = async (modalId, contrat = null) => {
+    if (!canModify && modalId && modalId !== "livrables") return
     setActiveModalId(modalId)
     if (modalId === "livrables" && contrat) {
       setLoading(true)
       try {
-        const fullContratData = await fetch(`http://localhost:8080/api/contrats/${contrat.id}`)
-          .then(res => res.json())
+        const fullContratData = await api.get(`/contrats/${contrat.id}`).then((res) => res.data)
         const livrables = await fetchContratLivrables(contrat.id)
         setSelectedContrat({
           ...fullContratData,
-          livrables: livrables
+          livrables: livrables,
         })
       } catch (err) {
-        console.error("Erreur:", err)
         setError(err.message)
       } finally {
         setLoading(false)
@@ -476,6 +512,7 @@ const ContractManagement = () => {
       details: "",
       nameClient: "",
       offreId: null,
+      budget: "",
     })
     setSelectedOffre(null)
     setLivrableFormData({
@@ -531,13 +568,11 @@ const ContractManagement = () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch(`http://localhost:8080/api/contrats/${contrat.id}/generate-pdf`, {
-        method: "POST",
-      })
-      if (!response.ok) {
+      const response = await api.post(`/contrats/${contrat.id}/generate-pdf`, {}, { responseType: "blob" })
+      if (response.status !== 200) {
         throw new Error("Erreur lors de la génération du PDF")
       }
-      const blob = await response.blob()
+      const blob = response.data
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement("a")
       link.href = url
@@ -548,7 +583,6 @@ const ContractManagement = () => {
       window.URL.revokeObjectURL(url)
       alert("Document téléchargé avec succès !")
     } catch (err) {
-      console.error("Error downloading PDF:", err)
       setError(err.message)
     } finally {
       setLoading(false)
@@ -558,11 +592,11 @@ const ContractManagement = () => {
   const handleDownloadDocument = async (document) => {
     try {
       if (document.id) {
-        const response = await fetch(`http://localhost:8080/api/documents/${document.id}/download`)
-        if (!response.ok) {
+        const response = await api.get(`/documents/${document.id}/download`, { responseType: "blob" })
+        if (response.status !== 200) {
           throw new Error("Erreur lors du téléchargement du document")
         }
-        const blob = await response.blob()
+        const blob = response.data
         const url = window.URL.createObjectURL(blob)
         const link = document.createElement("a")
         link.href = url
@@ -575,9 +609,20 @@ const ContractManagement = () => {
         alert("Document non disponible pour le téléchargement")
       }
     } catch (error) {
-      console.error("Erreur lors du téléchargement:", error)
       alert("Erreur lors du téléchargement du document: " + error.message)
     }
+  }
+
+  // Check permissions before rendering
+  if (!canView) {
+    return (
+      <div className="container mt-5">
+        <div className="alert alert-danger text-center">
+          <h4>Accès refusé</h4>
+          <p>Vous n'avez pas les permissions nécessaires pour voir les contrats.</p>
+        </div>
+      </div>
+    )
   }
 
   if (loading && contrats.length === 0) {
@@ -602,26 +647,33 @@ const ContractManagement = () => {
       <div
         className="rounded-3 p-3 d-flex shadow-lg justify-content-between"
         style={{
-          background: "linear-gradient(to right,rgba(4, 4, 4, 0.77),rgba(4, 4, 4, 0.77), rgba(45, 79, 39, 0.77), rgba(96, 54, 39, 0.77))",
+          background:
+            "linear-gradient(to right,rgba(4, 4, 4, 0.77),rgba(4, 4, 4, 0.77), rgba(45, 79, 39, 0.77), rgba(96, 54, 39, 0.77))",
           width: "95%",
           marginBottom: "-40px",
           zIndex: 1,
         }}
       >
-        <h4 style={{ color: "white", fontFamily: "corbel" }}>📋 Gestion des Contrats</h4>
+        <h4 style={{ color: "white", fontFamily: "corbel" }}>
+          📋 Gestion des Contrats
+          {!canModify && <small className="ms-2 badge bg-warning text-dark">LECTURE SEULE</small>}
+        </h4>
         <div className="d-flex flex-row">
-          <button
-            className="d-flex p-5 pt-0 pb-0 btn btn-sm rounded-4 justify-content-center align-items-center"
-            style={{ backgroundColor: "white" }}
-            onClick={() => toggleModal("createContrat")}
-          >
-            <i className="fa-solid fa-plus me-3" style={{ color: "#008080" }}></i>
-            Nouveau Contrat
-          </button>
+          {canModify && (
+            <button
+              className="d-flex p-5 pt-0 pb-0 btn btn-sm rounded-4 justify-content-center align-items-center"
+              style={{ backgroundColor: "white" }}
+              onClick={() => toggleModal("createContrat")}
+              title="Créer un nouveau contrat"
+            >
+              <i className="fa-solid fa-plus me-3" style={{ color: "#008080" }}></i>
+              Nouveau Contrat
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="w-100 mb-4" style={{ paddingTop: "60px" }}>
+      <div className="w-100 mb-4" style={{ paddingTop: canModify ? "60px" : "20px" }}>
         <div className="row g-3">
           <div className="col-md-3">
             <div className="card text-center border-primary">
@@ -686,15 +738,19 @@ const ContractManagement = () => {
                 <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
                   PDF
                 </th>
-                <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
-                  EMAIL
-                </th>
+                {canModify && (
+                  <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
+                    EMAIL
+                  </th>
+                )}
                 <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
                   LIVRABLES
                 </th>
-                <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
-                  ACTIONS
-                </th>
+                {canModify && (
+                  <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
+                    ACTIONS
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -703,9 +759,19 @@ const ContractManagement = () => {
                   <tr>
                     <td style={{ color: "black" }}>#{contrat.id}</td>
                     <td style={{ color: "black" }}>{contrat.nameClient}</td>
-                    <td style={{ color: "black" }}>{safeGet(contrat, "offre.opportunite.projectName", "N/A")}</td>
                     <td style={{ color: "black" }}>
-                      {safeGet(contrat, "offre.budget") ? `${contrat.offre.budget} MAD` : "N/A"}
+                      {safeGet(
+                        contrat,
+                        "offre.opportunite.projectName",
+                        contrat.details?.split(":")[1]?.trim() || "N/A",
+                      )}
+                    </td>
+                    <td style={{ color: "black" }}>
+                      {safeGet(contrat, "offre.budget")
+                        ? `${contrat.offre.budget} MAD`
+                        : contrat.budget
+                          ? `${contrat.budget} MAD`
+                          : "N/A"}
                     </td>
                     <td>
                       <span className={`badge ${getStatusBadge(contrat.statut || "ACTIF")}`}>
@@ -718,7 +784,7 @@ const ContractManagement = () => {
                           <i className="fas fa-check me-1"></i>
                           Signé
                         </span>
-                      ) : (
+                      ) : canModify ? (
                         <button
                           className="btn btn-sm btn-warning"
                           onClick={() => {
@@ -729,6 +795,11 @@ const ContractManagement = () => {
                           <i className="fas fa-pen me-1"></i>
                           Signer
                         </button>
+                      ) : (
+                        <span className="badge bg-secondary">
+                          <i className="fas fa-clock me-1"></i>
+                          Non signé
+                        </span>
                       )}
                     </td>
                     <td className="text-center">
@@ -755,19 +826,21 @@ const ContractManagement = () => {
                         <i className="fas fa-file-pdf text-danger"></i>
                       </button>
                     </td>
-                    <td className="text-center">
-                      <button
-                        className="btn btn-sm rounded-4"
-                        style={getButtonStyle("email")}
-                        onMouseEnter={() => setHoveredButton("email")}
-                        onMouseLeave={() => setHoveredButton(null)}
-                        onClick={() => handleGenerateAndSendPDF(contrat)}
-                        disabled={loading || !contrat.signed}
-                        title={!contrat.signed ? "Le contrat doit être signé avant l'envoi" : "Envoyer par email"}
-                      >
-                        {getEmailStatusIcon(contrat.id)}
-                      </button>
-                    </td>
+                    {canModify && (
+                      <td className="text-center">
+                        <button
+                          className="btn btn-sm rounded-4"
+                          style={getButtonStyle("email")}
+                          onMouseEnter={() => setHoveredButton("email")}
+                          onMouseLeave={() => setHoveredButton(null)}
+                          onClick={() => handleGenerateAndSendPDF(contrat)}
+                          disabled={loading || !contrat.signed}
+                          title={!contrat.signed ? "Le contrat doit être signé avant l'envoi" : "Envoyer par email"}
+                        >
+                          {getEmailStatusIcon(contrat.id)}
+                        </button>
+                      </td>
+                    )}
                     <td className="text-center">
                       <button
                         className="btn btn-sm rounded-4"
@@ -779,21 +852,23 @@ const ContractManagement = () => {
                         <i className="fa-solid fa-tasks" style={{ color: "rgb(255, 193, 7)" }}></i>
                       </button>
                     </td>
-                    <td className="text-center">
-                      <button
-                        className="btn btn-sm rounded-4 me-2"
-                        style={getButtonStyle("delete")}
-                        onMouseEnter={() => setHoveredButton("delete")}
-                        onMouseLeave={() => setHoveredButton(null)}
-                        onClick={() => handleDeleteContrat(contrat.id)}
-                      >
-                        <i className="fa-solid fa-trash" style={{ color: "red" }}></i>
-                      </button>
-                    </td>
+                    {canModify && (
+                      <td className="text-center">
+                        <button
+                          className="btn btn-sm rounded-4 me-2"
+                          style={getButtonStyle("delete")}
+                          onMouseEnter={() => setHoveredButton("delete")}
+                          onMouseLeave={() => setHoveredButton(null)}
+                          onClick={() => handleDeleteContrat(contrat.id)}
+                        >
+                          <i className="fa-solid fa-trash" style={{ color: "red" }}></i>
+                        </button>
+                      </td>
+                    )}
                   </tr>
                   {expandedRows.includes(`row-${contrat.id}`) && (
                     <tr key={`expanded-${contrat.id}`}>
-                      <td colSpan={11}>
+                      <td colSpan={canModify ? 11 : 9}>
                         <div className="p-3 rounded-3 border" style={{ backgroundColor: "#f8f9fa" }}>
                           <div className="row">
                             <div className="col-md-6">
@@ -833,115 +908,131 @@ const ContractManagement = () => {
                             <div className="col-md-6">
                               <div className="card mb-3">
                                 <div className="card-header bg-success text-white">
-                                  <h6 className="mb-0">🎯 Informations de l'Offre</h6>
+                                  <h6 className="mb-0">
+                                    🎯 Informations {contrat.offre ? "de l'Offre" : "du Contrat"}
+                                  </h6>
                                 </div>
                                 <div className="card-body">
                                   <p style={{ color: "black" }}>
                                     <strong style={{ color: "black" }}>Budget:</strong>{" "}
-                                    {safeGet(contrat, "offre.budget") ? `${contrat.offre.budget} MAD` : "N/A"}
+                                    {safeGet(contrat, "offre.budget")
+                                      ? `${contrat.offre.budget} MAD`
+                                      : contrat.budget
+                                        ? `${contrat.budget} MAD`
+                                        : "N/A"}
                                   </p>
-                                  <p style={{ color: "black" }}>
-                                    <strong style={{ color: "black" }}>Tâches:</strong>{" "}
-                                    {safeGet(contrat, "offre.taches.length", 0)}
-                                  </p>
-                                  {safeGet(contrat, "offre.taches") && contrat.offre.taches.length > 0 && (
-                                    <div className="mt-2">
-                                      <small className="text-muted" style={{ color: "black !important" }}>
-                                        Liste des tâches:
-                                      </small>
-                                      <ul className="list-unstyled ms-3">
-                                        {contrat.offre.taches.slice(0, 3).map((tache, index) => (
-                                          <li key={index} className="small" style={{ color: "black" }}>
-                                            • {tache.titre || `Tâche ${index + 1}`}
-                                            {tache.checked && <span className="text-success ms-1">✓</span>}
-                                          </li>
-                                        ))}
-                                        {contrat.offre.taches.length > 3 && (
-                                          <li className="small" style={{ color: "black" }}>
-                                            ... et {contrat.offre.taches.length - 3} autres
-                                          </li>
-                                        )}
-                                      </ul>
-                                    </div>
+                                  {contrat.offre ? (
+                                    <>
+                                      <p style={{ color: "black" }}>
+                                        <strong style={{ color: "black" }}>Tâches:</strong>{" "}
+                                        {safeGet(contrat, "offre.taches.length", 0)}
+                                      </p>
+                                      {safeGet(contrat, "offre.taches") && contrat.offre.taches.length > 0 && (
+                                        <div className="mt-2">
+                                          <small className="text-muted" style={{ color: "black !important" }}>
+                                            Liste des tâches:
+                                          </small>
+                                          <ul className="list-unstyled ms-3">
+                                            {contrat.offre.taches.slice(0, 3).map((tache, index) => (
+                                              <li key={index} className="small" style={{ color: "black" }}>
+                                                • {tache.titre || `Tâche ${index + 1}`}
+                                                {tache.checked && <span className="text-success ms-1">✓</span>}
+                                              </li>
+                                            ))}
+                                            {contrat.offre.taches.length > 3 && (
+                                              <li className="small" style={{ color: "black" }}>
+                                                ... et {contrat.offre.taches.length - 3} autres
+                                              </li>
+                                            )}
+                                          </ul>
+                                        </div>
+                                      )}
+                                      <p style={{ color: "black" }}>
+                                        <strong style={{ color: "black" }}>Documents:</strong>{" "}
+                                        {safeGet(contrat, "offre.documents.length", 0)}
+                                      </p>
+                                    </>
+                                  ) : (
+                                    <p style={{ color: "black" }}>
+                                      <strong style={{ color: "black" }}>Type:</strong> Contrat manuel
+                                    </p>
                                   )}
-                                  <p style={{ color: "black" }}>
-                                    <strong style={{ color: "black" }}>Documents:</strong>{" "}
-                                    {safeGet(contrat, "offre.documents.length", 0)}
-                                  </p>
                                 </div>
                               </div>
                             </div>
                           </div>
-                          <div className="row mt-2">
-                            <div className="col-md-6">
-                              {safeGet(contrat, "offre.documents") && contrat.offre.documents.length > 0 && (
-                                <div className="card">
-                                  <div className="card-header bg-info text-white">
-                                    <h6 className="mb-0">📄 Documents Associés</h6>
-                                  </div>
-                                  <div className="card-body">
-                                    <div className="ms-3">
-                                      {contrat.offre.documents.map((document, index) => (
-                                        <div
-                                          key={index}
-                                          className="d-flex align-items-center justify-content-between border rounded p-2 mb-1"
-                                          style={{ backgroundColor: "white" }}
-                                        >
-                                          <div className="d-flex align-items-center">
-                                            <i className="fas fa-file-alt text-primary me-2"></i>
-                                            <div>
-                                              <div className="small fw-bold" style={{ color: "black" }}>
-                                                {document.namefile || `Document ${index + 1}`}
-                                              </div>
-                                              <div
-                                                className="text-muted"
-                                                style={{ fontSize: "0.75rem", color: "black !important" }}
-                                              >
-                                                {document.type || "Type non spécifié"}
+                          {contrat.offre && (
+                            <div className="row mt-2">
+                              <div className="col-md-6">
+                                {safeGet(contrat, "offre.documents") && contrat.offre.documents.length > 0 && (
+                                  <div className="card">
+                                    <div className="card-header bg-info text-white">
+                                      <h6 className="mb-0">📄 Documents Associés</h6>
+                                    </div>
+                                    <div className="card-body">
+                                      <div className="ms-3">
+                                        {contrat.offre.documents.map((document, index) => (
+                                          <div
+                                            key={index}
+                                            className="d-flex align-items-center justify-content-between border rounded p-2 mb-1"
+                                            style={{ backgroundColor: "white" }}
+                                          >
+                                            <div className="d-flex align-items-center">
+                                              <i className="fas fa-file-alt text-primary me-2"></i>
+                                              <div>
+                                                <div className="small fw-bold" style={{ color: "black" }}>
+                                                  {document.namefile || `Document ${index + 1}`}
+                                                </div>
+                                                <div
+                                                  className="text-muted"
+                                                  style={{ fontSize: "0.75rem", color: "black !important" }}
+                                                >
+                                                  {document.type || "Type non spécifié"}
+                                                </div>
                                               </div>
                                             </div>
+                                            <button
+                                              className="btn btn-sm btn-outline-primary"
+                                              onClick={() => handleDownloadDocument(document)}
+                                              title="Télécharger le document"
+                                            >
+                                              <i className="fas fa-download"></i>
+                                            </button>
                                           </div>
-                                          <button
-                                            className="btn btn-sm btn-outline-primary"
-                                            onClick={() => handleDownloadDocument(document)}
-                                            title="Télécharger le document"
-                                          >
-                                            <i className="fas fa-download"></i>
-                                          </button>
-                                        </div>
-                                      ))}
+                                        ))}
+                                      </div>
                                     </div>
                                   </div>
-                                </div>
-                              )}
-                            </div>
-                            <div className="col-md-6">
-                              {safeGet(contrat, "offre.opportunite") && (
-                                <div className="card">
-                                  <div className="card-header bg-secondary text-white">
-                                    <h6 className="mb-0">🏢 Informations Client</h6>
+                                )}
+                              </div>
+                              <div className="col-md-6">
+                                {safeGet(contrat, "offre.opportunite") && (
+                                  <div className="card">
+                                    <div className="card-header bg-secondary text-white">
+                                      <h6 className="mb-0">🏢 Informations Client</h6>
+                                    </div>
+                                    <div className="card-body">
+                                      <p style={{ color: "black" }}>
+                                        <strong style={{ color: "black" }}>Projet:</strong>{" "}
+                                        {safeGet(contrat, "offre.opportunite.projectName", "N/A")}
+                                      </p>
+                                      <p style={{ color: "black" }}>
+                                        <strong style={{ color: "black" }}>Client:</strong>{" "}
+                                        {safeGet(contrat, "offre.opportunite.client.name", "N/A")}
+                                      </p>
+                                      {safeGet(contrat, "offre.opportunite.client.contacts") &&
+                                        contrat.offre.opportunite.client.contacts.length > 0 && (
+                                          <p style={{ color: "black" }}>
+                                            <strong style={{ color: "black" }}>Contact:</strong>{" "}
+                                            {safeGet(contrat, "offre.opportunite.client.contacts.0.email", "N/A")}
+                                          </p>
+                                        )}
+                                    </div>
                                   </div>
-                                  <div className="card-body">
-                                    <p style={{ color: "black" }}>
-                                      <strong style={{ color: "black" }}>Projet:</strong>{" "}
-                                      {safeGet(contrat, "offre.opportunite.projectName", "N/A")}
-                                    </p>
-                                    <p style={{ color: "black" }}>
-                                      <strong style={{ color: "black" }}>Client:</strong>{" "}
-                                      {safeGet(contrat, "offre.opportunite.client.name", "N/A")}
-                                    </p>
-                                    {safeGet(contrat, "offre.opportunite.client.contacts") &&
-                                      contrat.offre.opportunite.client.contacts.length > 0 && (
-                                        <p style={{ color: "black" }}>
-                                          <strong style={{ color: "black" }}>Contact:</strong>{" "}
-                                          {safeGet(contrat, "offre.opportunite.client.contacts.0.email", "N/A")}
-                                        </p>
-                                      )}
-                                  </div>
-                                </div>
-                              )}
+                                )}
+                              </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -953,7 +1044,8 @@ const ContractManagement = () => {
         </div>
       </div>
 
-      {activeModalId === "createContrat" && (
+      {/* Modal Création Contrat */}
+      {activeModalId === "createContrat" && canModify && (
         <div
           className="modal show"
           style={{
@@ -975,22 +1067,31 @@ const ContractManagement = () => {
                   <div className="row g-3">
                     <div className="col-12">
                       <label className="form-label" style={{ color: "black" }}>
-                        Offre Gagnée
+                        {offresGagnees.length > 0 ? "Offre Gagnée" : "Type de Contrat"}
                       </label>
-                      <select
-                        className="form-control"
-                        name="offreId"
-                        value={contratFormData.offreId || ""}
-                        onChange={handleOffreSelect}
-                        required
-                      >
-                        <option value="">Sélectionner une offre gagnée</option>
-                        {offresGagnees.map((offre) => (
-                          <option key={offre.idOffre} value={offre.idOffre}>
-                            {safeGet(offre, "opportunite.projectName", "Projet non spécifié")} - {offre.budget} MAD
-                          </option>
-                        ))}
-                      </select>
+                      {offresGagnees.length > 0 ? (
+                        <select
+                          className="form-control"
+                          name="offreId"
+                          value={contratFormData.offreId || ""}
+                          onChange={handleOffreSelect}
+                          required
+                        >
+                          <option value="">Sélectionner une offre gagnée</option>
+                          {offresGagnees.map((offre) => (
+                            <option key={offre.idOffre} value={offre.idOffre}>
+                              {safeGet(offre, "opportunite.projectName", "Projet non spécifié")} - {offre.budget} MAD
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="alert alert-info">
+                          <i className="fas fa-info-circle me-2"></i>
+                          <strong>Création manuelle de contrat</strong>
+                          <br />
+                          Vous pouvez créer un contrat en saisissant manuellement les informations ci-dessous.
+                        </div>
+                      )}
                     </div>
                     <div className="col-md-6">
                       <label className="form-label" style={{ color: "black" }}>
@@ -1018,6 +1119,23 @@ const ContractManagement = () => {
                         required
                       />
                     </div>
+                    {offresGagnees.length === 0 && (
+                      <div className="col-md-6">
+                        <label className="form-label" style={{ color: "black" }}>
+                          Budget (MAD)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="form-control"
+                          name="budget"
+                          value={contratFormData.budget || ""}
+                          onChange={handleInputChange}
+                          placeholder="Montant du contrat"
+                          required
+                        />
+                      </div>
+                    )}
                     <div className="col-12">
                       <label className="form-label" style={{ color: "black" }}>
                         Nom du Client
@@ -1030,6 +1148,7 @@ const ContractManagement = () => {
                         onChange={handleInputChange}
                         required
                         readOnly={!!selectedOffre}
+                        placeholder={offresGagnees.length === 0 ? "Nom du client" : ""}
                       />
                     </div>
                     <div className="col-12">
@@ -1088,7 +1207,8 @@ const ContractManagement = () => {
         </div>
       )}
 
-      {showSignatureModal && (
+      {/* Modal Signature */}
+      {showSignatureModal && canModify && (
         <div
           className="modal show"
           style={{
@@ -1133,7 +1253,7 @@ const ContractManagement = () => {
                       style={{
                         border: "1px solid #ddd",
                         borderRadius: "4px",
-                        cursor: "crosshair",
+                        cursor: canModify ? "crosshair" : "not-allowed",
                         backgroundColor: "white",
                         width: "100%",
                         maxWidth: "400px",
@@ -1158,10 +1278,16 @@ const ContractManagement = () => {
                       <strong>Client:</strong> {selectedContrat.nameClient}
                     </p>
                     <p style={{ color: "black" }}>
-                      <strong>Projet:</strong> {safeGet(selectedContrat, "offre.opportunite.projectName", "N/A")}
+                      <strong>Projet:</strong>{" "}
+                      {safeGet(
+                        selectedContrat,
+                        "offre.opportunite.projectName",
+                        selectedContrat.details?.split(":")[1]?.trim() || "N/A",
+                      )}
                     </p>
                     <p style={{ color: "black" }}>
-                      <strong>Budget:</strong> {safeGet(selectedContrat, "offre.budget", 0)} MAD
+                      <strong>Budget:</strong> {safeGet(selectedContrat, "offre.budget", selectedContrat.budget || 0)}{" "}
+                      MAD
                     </p>
                   </div>
                 )}
@@ -1194,6 +1320,7 @@ const ContractManagement = () => {
         </div>
       )}
 
+      {/* Modal Livrables */}
       {activeModalId === "livrables" && selectedContrat && (
         <div
           className="modal show"
@@ -1208,151 +1335,152 @@ const ContractManagement = () => {
               <div className="modal-header">
                 <h4 className="modal-title" style={{ fontFamily: "corbel", color: "#ffc107" }}>
                   📦 Gestion des Livrables - Contrat #{selectedContrat.id}
+                  {!canModify && <small className="ms-2 badge bg-warning text-dark">LECTURE SEULE</small>}
                 </h4>
                 <button type="button" className="btn-close" onClick={() => toggleModal(null)}></button>
               </div>
               <div className="modal-body">
-                <div className="card mb-4">
-                  <div className="card-header bg-primary text-white">
-                    <h5 className="mb-0">
-                      <i className="fas fa-plus me-2"></i>
-                      {selectedLivrable ? "Modifier le Livrable" : "Ajouter un Livrable"}
-                    </h5>
-                  </div>
-                  <div className="card-body">
-                    <form onSubmit={selectedLivrable ? handleUpdateLivrable : handleAddLivrable}>
-                      <div className="row g-3">
-                        <div className="col-md-6">
-                          <label className="form-label" style={{ color: "black" }}>
-                            Titre du livrable
-                          </label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            name="titre"
-                            value={livrableFormData.titre}
-                            onChange={handleLivrableInputChange}
-                            required
-                          />
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label" style={{ color: "black" }}>
-                            Date de livraison
-                          </label>
-                          <input
-                            type="date"
-                            className="form-control"
-                            name="dateLivraison"
-                            value={livrableFormData.dateLivraison}
-                            onChange={handleLivrableInputChange}
-                            required
-                          />
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label" style={{ color: "black" }}>
-                            Montant (MAD)
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="form-control"
-                            name="montant"
-                            value={livrableFormData.montant}
-                            onChange={handleLivrableInputChange}
-                            required
-                          />
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label" style={{ color: "black" }}>
-                            Fichier joint (optionnel)
-                          </label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            name="fichierJoint"
-                            value={livrableFormData.fichierJoint}
-                            onChange={handleLivrableInputChange}
-                            placeholder="Chemin ou URL du fichier"
-                          />
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label" style={{ color: "black" }}>
-                            Statut de Validation
-                          </label>
-                          <select
-                            className="form-control"
-                            name="statutValidation"
-                            value={livrableFormData.statutValidation}
-                            onChange={handleLivrableInputChange}
-                            required
-                          >
-                            <option value="EN_ATTENTE">En attente</option>
-                            <option value="VALIDE">Validé</option>
-                            <option value="REFUSE">Refusé</option>
-                          </select>
-                        </div>
-                        <div className="col-md-6">
-                          <label className="form-label" style={{ color: "black" }}>
-                            Statut de Paiement
-                          </label>
-                          <select
-                            className="form-control"
-                            name="statutPaiement"
-                            value={livrableFormData.statutPaiement}
-                            onChange={handleLivrableInputChange}
-                            required
-                          >
-                            <option value="NON_PAYE">Non payé</option>
-                            <option value="PAYE">Payé</option>
-                            <option value="SOLDE">Soldé</option>
-                          </select>
-                        </div>
-                        <div className="col-12">
-                          <label className="form-label" style={{ color: "black" }}>
-                            Description
-                          </label>
-                          <textarea
-                            className="form-control"
-                            name="description"
-                            value={livrableFormData.description}
-                            onChange={handleLivrableInputChange}
-                            rows="3"
-                            placeholder="Description détaillée du livrable"
-                            required
-                          />
-                        </div>
-                        <div className="col-12">
-                          <button type="submit" className="btn btn-primary me-2" disabled={loading}>
-                            {loading ? (
-                              <span className="spinner-border spinner-border-sm me-2"></span>
-                            ) : null}
-                            {selectedLivrable ? "Modifier" : "Ajouter"}
-                          </button>
-                          {selectedLivrable && (
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              onClick={() => {
-                                setSelectedLivrable(null)
-                                setLivrableFormData({
-                                  titre: "",
-                                  description: "",
-                                  dateLivraison: "",
-                                  montant: "",
-                                  statutValidation: "EN_ATTENTE",
-                                  statutPaiement: "NON_PAYE",
-                                  fichierJoint: "",
-                                })
-                              }}
+                {canModify && (
+                  <div className="card mb-4">
+                    <div className="card-header bg-primary text-white">
+                      <h5 className="mb-0">
+                        <i className="fas fa-plus me-2"></i>
+                        {selectedLivrable ? "Modifier le Livrable" : "Ajouter un Livrable"}
+                      </h5>
+                    </div>
+                    <div className="card-body">
+                      <form onSubmit={selectedLivrable ? handleUpdateLivrable : handleAddLivrable}>
+                        <div className="row g-3">
+                          <div className="col-md-6">
+                            <label className="form-label" style={{ color: "black" }}>
+                              Titre du livrable
+                            </label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              name="titre"
+                              value={livrableFormData.titre}
+                              onChange={handleLivrableInputChange}
+                              required
+                            />
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label" style={{ color: "black" }}>
+                              Date de livraison
+                            </label>
+                            <input
+                              type="date"
+                              className="form-control"
+                              name="dateLivraison"
+                              value={livrableFormData.dateLivraison}
+                              onChange={handleLivrableInputChange}
+                              required
+                            />
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label" style={{ color: "black" }}>
+                              Montant (MAD)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              className="form-control"
+                              name="montant"
+                              value={livrableFormData.montant}
+                              onChange={handleLivrableInputChange}
+                              required
+                            />
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label" style={{ color: "black" }}>
+                              Fichier joint (optionnel)
+                            </label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              name="fichierJoint"
+                              value={livrableFormData.fichierJoint}
+                              onChange={handleLivrableInputChange}
+                              placeholder="Chemin ou URL du fichier"
+                            />
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label" style={{ color: "black" }}>
+                              Statut de Validation
+                            </label>
+                            <select
+                              className="form-control"
+                              name="statutValidation"
+                              value={livrableFormData.statutValidation}
+                              onChange={handleLivrableInputChange}
+                              required
                             >
-                              Annuler
+                              <option value="EN_ATTENTE">En attente</option>
+                              <option value="VALIDE">Validé</option>
+                              <option value="REFUSE">Refusé</option>
+                            </select>
+                          </div>
+                          <div className="col-md-6">
+                            <label className="form-label" style={{ color: "black" }}>
+                              Statut de Paiement
+                            </label>
+                            <select
+                              className="form-control"
+                              name="statutPaiement"
+                              value={livrableFormData.statutPaiement}
+                              onChange={handleLivrableInputChange}
+                              required
+                            >
+                              <option value="NON_PAYE">Non payé</option>
+                              <option value="PAYE">Payé</option>
+                              <option value="SOLDE">Soldé</option>
+                            </select>
+                          </div>
+                          <div className="col-12">
+                            <label className="form-label" style={{ color: "black" }}>
+                              Description
+                            </label>
+                            <textarea
+                              className="form-control"
+                              name="description"
+                              value={livrableFormData.description}
+                              onChange={handleLivrableInputChange}
+                              rows="3"
+                              placeholder="Description détaillée du livrable"
+                              required
+                            />
+                          </div>
+                          <div className="col-12">
+                            <button type="submit" className="btn btn-primary me-2" disabled={loading}>
+                              {loading ? <span className="spinner-border spinner-border-sm me-2"></span> : null}
+                              {selectedLivrable ? "Modifier" : "Ajouter"}
                             </button>
-                          )}
+                            {selectedLivrable && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => {
+                                  setSelectedLivrable(null)
+                                  setLivrableFormData({
+                                    titre: "",
+                                    description: "",
+                                    dateLivraison: "",
+                                    montant: "",
+                                    statutValidation: "EN_ATTENTE",
+                                    statutPaiement: "NON_PAYE",
+                                    fichierJoint: "",
+                                  })
+                                }}
+                              >
+                                Annuler
+                              </button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </form>
+                      </form>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="card">
                   <div className="card-header bg-success text-white">
@@ -1373,7 +1501,7 @@ const ContractManagement = () => {
                               <th style={{ color: "black" }}>Montant</th>
                               <th style={{ color: "black" }}>Statut Validation</th>
                               <th style={{ color: "black" }}>Statut Paiement</th>
-                              <th style={{ color: "black" }}>Actions</th>
+                              {canModify && <th style={{ color: "black" }}>Actions</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -1400,39 +1528,51 @@ const ContractManagement = () => {
                                   <strong>{livrable.montant} MAD</strong>
                                 </td>
                                 <td>
-                                  <span className={`badge ${
-                                    livrable.statutValidation === "VALIDE" ? "bg-success" :
-                                    livrable.statutValidation === "REFUSE" ? "bg-danger" : "bg-warning"
-                                  }`}>
+                                  <span
+                                    className={`badge ${
+                                      livrable.statutValidation === "VALIDE"
+                                        ? "bg-success"
+                                        : livrable.statutValidation === "REFUSE"
+                                          ? "bg-danger"
+                                          : "bg-warning"
+                                    }`}
+                                  >
                                     {livrable.statutValidation}
                                   </span>
                                 </td>
                                 <td>
-                                  <span className={`badge ${
-                                    livrable.statutPaiement === "PAYE" ? "bg-success" :
-                                    livrable.statutPaiement === "SOLDE" ? "bg-info" : "bg-warning"
-                                  }`}>
+                                  <span
+                                    className={`badge ${
+                                      livrable.statutPaiement === "PAYE"
+                                        ? "bg-success"
+                                        : livrable.statutPaiement === "SOLDE"
+                                          ? "bg-info"
+                                          : "bg-warning"
+                                    }`}
+                                  >
                                     {livrable.statutPaiement}
                                   </span>
                                 </td>
-                                <td>
-                                  <div className="btn-group" role="group">
-                                    <button
-                                      className="btn btn-sm btn-outline-primary"
-                                      title="Modifier"
-                                      onClick={() => handleSelectLivrableForEdit(livrable)}
-                                    >
-                                      <i className="fas fa-edit"></i>
-                                    </button>
-                                    <button
-                                      className="btn btn-sm btn-outline-danger"
-                                      title="Supprimer"
-                                      onClick={() => handleDeleteLivrable(selectedContrat.id, livrable.id)}
-                                    >
-                                      <i className="fas fa-trash"></i>
-                                    </button>
-                                  </div>
-                                </td>
+                                {canModify && (
+                                  <td>
+                                    <div className="btn-group" role="group">
+                                      <button
+                                        className="btn btn-sm btn-outline-primary"
+                                        title="Modifier"
+                                        onClick={() => handleSelectLivrableForEdit(livrable)}
+                                      >
+                                        <i className="fas fa-edit"></i>
+                                      </button>
+                                      <button
+                                        className="btn btn-sm btn-outline-danger"
+                                        title="Supprimer"
+                                        onClick={() => handleDeleteLivrable(selectedContrat.id, livrable.id)}
+                                      >
+                                        <i className="fas fa-trash"></i>
+                                      </button>
+                                    </div>
+                                  </td>
+                                )}
                               </tr>
                             ))}
                           </tbody>
@@ -1444,9 +1584,11 @@ const ContractManagement = () => {
                         <p className="text-muted" style={{ color: "black !important" }}>
                           Aucun livrable défini pour ce contrat
                         </p>
-                        <p className="text-muted" style={{ color: "black !important" }}>
-                          Utilisez le formulaire ci-dessus pour ajouter des livrables
-                        </p>
+                        {canModify && (
+                          <p className="text-muted" style={{ color: "black !important" }}>
+                            Utilisez le formulaire ci-dessus pour ajouter des livrables
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>

@@ -1,20 +1,13 @@
 "use client"
 import { useState, useEffect, useCallback } from "react"
-import {
-  getClients,
-  createClient,
-  updateClient,
-  archiveClient,
-  createContact,
-  getClientById,
-} from "../api/clientService"
+import { getClients, createClient, updateClient, archiveClient, createContact } from "../api/clientService"
+import api from "../services/api"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "../styles/dashboard.css"
 import Modal from "./modal"
-import authService from "../services/authService"
 
 // Composant Formulaire Client
-const FormClient = ({ formData, onChange, onSubmit, editMode = false, readOnly = false }) => {
+const FormClient = ({ formData, onChange, onSubmit, editMode = false }) => {
   return (
     <form className="d-flex flex-column gap-3" onSubmit={onSubmit}>
       <input
@@ -24,7 +17,6 @@ const FormClient = ({ formData, onChange, onSubmit, editMode = false, readOnly =
         value={formData.name}
         onChange={onChange}
         required
-        readOnly={readOnly}
       />
       <input
         className="form-control"
@@ -32,7 +24,6 @@ const FormClient = ({ formData, onChange, onSubmit, editMode = false, readOnly =
         placeholder="Site Web"
         value={formData.webSite}
         onChange={onChange}
-        readOnly={readOnly}
       />
       <input
         className="form-control"
@@ -40,7 +31,6 @@ const FormClient = ({ formData, onChange, onSubmit, editMode = false, readOnly =
         placeholder="Adresse"
         value={formData.address}
         onChange={onChange}
-        readOnly={readOnly}
       />
       <input
         className="form-control"
@@ -48,19 +38,16 @@ const FormClient = ({ formData, onChange, onSubmit, editMode = false, readOnly =
         placeholder="Secteur"
         value={formData.secteur}
         onChange={onChange}
-        readOnly={readOnly}
       />
-      {!readOnly && (
-        <button type="submit" className="btn btn-success">
-          {editMode ? "Mettre à jour" : "Ajouter"}
-        </button>
-      )}
+      <button type="submit" className="btn btn-success">
+        {editMode ? "Mettre à jour" : "Ajouter"}
+      </button>
     </form>
   )
 }
 
 // Composant Formulaire Contact
-const FormContact = ({ onSubmit, onChange, formData, readOnly = false }) => {
+const FormContact = ({ onSubmit, onChange, formData }) => {
   return (
     <form className="d-flex flex-column gap-3" onSubmit={onSubmit}>
       <input
@@ -70,7 +57,6 @@ const FormContact = ({ onSubmit, onChange, formData, readOnly = false }) => {
         value={formData.name}
         onChange={onChange}
         required
-        readOnly={readOnly}
       />
       <input
         className="form-control"
@@ -80,29 +66,18 @@ const FormContact = ({ onSubmit, onChange, formData, readOnly = false }) => {
         value={formData.email}
         onChange={onChange}
         required
-        readOnly={readOnly}
       />
-      <input
-        className="form-control"
-        name="phone"
-        placeholder="Téléphone"
-        value={formData.phone}
-        onChange={onChange}
-        readOnly={readOnly}
-      />
+      <input className="form-control" name="phone" placeholder="Téléphone" value={formData.phone} onChange={onChange} />
       <input
         className="form-control"
         name="position"
         placeholder="Poste"
         value={formData.position}
         onChange={onChange}
-        readOnly={readOnly}
       />
-      {!readOnly && (
-        <button type="submit" className="btn btn-primary">
-          Enregistrer
-        </button>
-      )}
+      <button type="submit" className="btn btn-primary">
+        Enregistrer
+      </button>
     </form>
   )
 }
@@ -120,12 +95,10 @@ const ClientContacts = ({ clientId }) => {
     clientId: clientId,
   })
 
-  const canModify = authService.canModifyClients()
-
   const fetchContacts = useCallback(async () => {
     try {
-      const response = await getClientById(clientId)
-      setContacts(Array.from(response.data.contacts || []))
+      const response = await api.get(`/clients/${clientId}/contacts`)
+      setContacts(Array.from(response.data))
     } catch (error) {
       console.error("Error fetching contacts:", error)
       setContacts([])
@@ -145,11 +118,6 @@ const ClientContacts = ({ clientId }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!canModify) {
-      alert("Vous n'avez pas les permissions pour ajouter des contacts")
-      return
-    }
-
     try {
       await createContact(clientId, contactForm)
       setShowForm(false)
@@ -173,11 +141,9 @@ const ClientContacts = ({ clientId }) => {
     <div>
       {!showForm ? (
         <>
-          {canModify && (
-            <button className="btn btn-primary mb-3" onClick={() => setShowForm(true)}>
-              + Ajouter Contact
-            </button>
-          )}
+          <button className="btn btn-primary mb-3" onClick={() => setShowForm(true)}>
+            + Ajouter Contact
+          </button>
           {contacts.length > 0 ? (
             <ul className="list-group">
               {contacts.map((contact) => (
@@ -196,19 +162,14 @@ const ClientContacts = ({ clientId }) => {
           )}
         </>
       ) : (
-        <div>
-          <button className="btn btn-secondary mb-3" onClick={() => setShowForm(false)}>
-            ← Retour à la liste
-          </button>
-          <FormContact onSubmit={handleSubmit} onChange={handleContactChange} formData={contactForm} />
-        </div>
+        <FormContact onSubmit={handleSubmit} onChange={handleContactChange} formData={contactForm} />
       )}
     </div>
   )
 }
 
-// Composant Principal Clients
-export default function Clients() {
+// Composant Principal Clients avec Authentification
+export default function ClientsWithAuth() {
   const [clients, setClients] = useState([])
   const [loading, setLoading] = useState(true)
   const [archivedView, setArchivedView] = useState(false)
@@ -221,8 +182,6 @@ export default function Clients() {
     address: "",
     secteur: "",
   })
-
-  const canModify = authService.canModifyClients()
 
   const fetchClients = useCallback(async () => {
     try {
@@ -247,15 +206,13 @@ export default function Clients() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!canModify) {
-      alert("Vous n'avez pas les permissions pour modifier les clients")
-      return
-    }
-
+    console.log("Submitting form with formData:", formData)
     try {
       if (formData.id) {
+        console.log("Attempting to update client with ID:", formData.id)
         await updateClient(formData.id, formData)
       } else {
+        console.log("Attempting to create new client.")
         await createClient(formData)
       }
       fetchClients()
@@ -267,11 +224,6 @@ export default function Clients() {
   }
 
   const handleArchive = async () => {
-    if (!canModify) {
-      alert("Vous n'avez pas les permissions pour archiver les clients")
-      return
-    }
-
     if (!selectedClient?.idClient) return
     try {
       await archiveClient(selectedClient.idClient)
@@ -319,13 +271,11 @@ export default function Clients() {
           zIndex: 1,
         }}
       >
-        <h4 style={{ color: "white", fontFamily: "corbel" }}>Gestion des Clients {!canModify && "(Lecture seule)"}</h4>
+        <h4 style={{ color: "white", fontFamily: "corbel" }}>Gestion des Clients</h4>
         <div>
-          {canModify && (
-            <button className="btn btn-light me-2" onClick={() => toggleModal("addClient")}>
-              + Client
-            </button>
-          )}
+          <button className="btn btn-light me-2" onClick={() => toggleModal("addClient")}>
+            + Client
+          </button>
           <button className="btn btn-outline-dark" onClick={() => setArchivedView(!archivedView)}>
             {archivedView ? "Voir Actifs" : "Voir Archivés"}
           </button>
@@ -351,8 +301,8 @@ export default function Clients() {
                 <th>Secteur</th>
                 <th>Contacts</th>
                 <th>Détails</th>
-                {canModify && <th>Modifier</th>}
-                {canModify && <th>Archiver</th>}
+                <th>Modifier</th>
+                <th>Archiver</th>
               </tr>
             </thead>
             <tbody>
@@ -380,20 +330,16 @@ export default function Clients() {
                       🔍
                     </button>
                   </td>
-                  {canModify && (
-                    <td className="text-center">
-                      <button className="btn btn-sm" onClick={() => toggleModal("editClient", client)}>
-                        ✏️
-                      </button>
-                    </td>
-                  )}
-                  {canModify && (
-                    <td className="text-center">
-                      <button className="btn btn-sm text-danger" onClick={() => toggleModal("archiveClient", client)}>
-                        {client.archived ? "🗄️" : "🗃️"}
-                      </button>
-                    </td>
-                  )}
+                  <td className="text-center">
+                    <button className="btn btn-sm" onClick={() => toggleModal("editClient", client)}>
+                      ✏️
+                    </button>
+                  </td>
+                  <td className="text-center">
+                    <button className="btn btn-sm text-danger" onClick={() => toggleModal("archiveClient", client)}>
+                      {client.archived ? "🗄️" : "🗃️"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -402,7 +348,7 @@ export default function Clients() {
       </div>
 
       {/* Modals */}
-      {activeModalId === "addClient" && canModify && (
+      {activeModalId === "addClient" && (
         <Modal title="Nouveau Client" color="#008080" onClose={() => toggleModal(null)}>
           <FormClient formData={formData} onChange={handleInputChange} onSubmit={handleSubmit} />
         </Modal>
@@ -410,17 +356,11 @@ export default function Clients() {
 
       {activeModalId === "editClient" && (
         <Modal title="Modifier Client" color="green" onClose={() => toggleModal(null)}>
-          <FormClient
-            formData={formData}
-            onChange={handleInputChange}
-            onSubmit={handleSubmit}
-            editMode={true}
-            readOnly={!canModify}
-          />
+          <FormClient formData={formData} onChange={handleInputChange} onSubmit={handleSubmit} editMode={true} />
         </Modal>
       )}
 
-      {activeModalId === "archiveClient" && canModify && (
+      {activeModalId === "archiveClient" && (
         <Modal title="Archivage" color="red" onClose={() => toggleModal(null)}>
           <p>Voulez-vous vraiment {selectedClient?.archived ? "désarchiver" : "archiver"} ce client ?</p>
           <button className="btn btn-danger me-2" onClick={handleArchive}>

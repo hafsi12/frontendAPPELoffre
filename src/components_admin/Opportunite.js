@@ -1,8 +1,14 @@
+
 "use client"
+
 import { useState, useEffect } from "react"
 import Modal from "./modal"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
+import api from "../services/api" // Change from "@/services/api"
+import authService from "../services/authService"
+
+
 
 function Opportunite({ onNavigateToOffre }) {
   const [opportunities, setOpportunities] = useState([])
@@ -31,6 +37,9 @@ function Opportunite({ onNavigateToOffre }) {
   })
   const [error, setError] = useState(null)
 
+  const canModify = authService.canModifyOpportunities()
+  const canView = authService.canViewOpportunities()
+
   useEffect(() => {
     fetchOpportunites()
     fetchClients()
@@ -39,10 +48,8 @@ function Opportunite({ onNavigateToOffre }) {
   const fetchOpportunites = async () => {
     try {
       setLoading(true)
-      const response = await fetch("http://localhost:8080/api/opportunites?_embed=documents&_embed=etat")
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
-      const data = await response.json()
-      setOpportunities(data)
+      const response = await api.get("/opportunites?_embed=documents&_embed=etat") // Use api.get
+      setOpportunities(response.data)
     } catch (error) {
       console.error("Error fetching opportunities:", error)
       setError("Erreur lors du chargement des opportunités")
@@ -53,14 +60,8 @@ function Opportunite({ onNavigateToOffre }) {
 
   const fetchClients = async () => {
     try {
-      const response = await fetch("http://localhost:8080/api/clients")
-      if (!response.ok) {
-        const errorText = await response.text() // Read response as text to see malformed JSON
-        console.error("Server error response (text for clients):", errorText)
-        throw new Error(`HTTP error! status: ${response.status}. Server response: ${errorText.substring(0, 200)}...`)
-      }
-      const data = await response.json()
-      setClients(data.map((client) => ({ ...client, id: client.idClient })))
+      const response = await api.get("/clients") // Use api.get
+      setClients(response.data.map((client) => ({ ...client, id: client.idClient })))
     } catch (error) {
       console.error("Error fetching clients:", error)
       setError("Erreur lors du chargement des clients: " + error.message) // Display error message from backend
@@ -103,7 +104,7 @@ function Opportunite({ onNavigateToOffre }) {
             description: newDocument.description,
             fileType: newDocument.fileType,
             path: newDocument.fileName, // Use original file name as path for now, backend will update
-            file: newDocument.file, // Keep the actual file object for submission
+            file: newDocument.file, // Keep the actual File object for submission
           },
         ],
       }))
@@ -125,6 +126,7 @@ function Opportunite({ onNavigateToOffre }) {
   }
 
   const handleAddOpportunity = async () => {
+    if (!canModify) return
     try {
       const opportunityData = {
         projectName: formData.projectName,
@@ -153,28 +155,14 @@ function Opportunite({ onNavigateToOffre }) {
         }
       })
 
-      const response = await fetch("http://localhost:8080/api/opportunites", {
-        method: "POST",
-        // Do NOT set Content-Type header for FormData, browser sets it automatically
-        body: formDataToSend,
+      const response = await api.post("/opportunites", formDataToSend, {
+        // Use api.post
+        headers: {
+          "Content-Type": "multipart/form-data", // Ensure correct content type
+        },
       })
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error("Server error response (text):", errorText)
-        try {
-          const errorData = JSON.parse(errorText)
-          throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
-        } catch (jsonError) {
-          console.error("Failed to parse error response as JSON:", jsonError)
-          throw new Error(
-            `Server responded with non-JSON error: ${errorText.substring(0, 200)}... (Status: ${response.status})`,
-          )
-        }
-      }
-
-      const data = await response.json()
-      setOpportunities([...opportunities, data])
+      setOpportunities([...opportunities, response.data])
       resetForm()
       setActiveModalId(null)
     } catch (error) {
@@ -184,6 +172,7 @@ function Opportunite({ onNavigateToOffre }) {
   }
 
   const handleUpdateOpportunity = async () => {
+    if (!canModify) return
     try {
       // Debugging logs
       console.log("Attempting to update opportunity with ID:", selectedOpportunity?.idOpp)
@@ -227,32 +216,18 @@ function Opportunite({ onNavigateToOffre }) {
       )
 
       // IMPORTANT: Changed URL to use query parameter for ID as per backend change
-      const response = await fetch(`http://localhost:8080/api/opportunites?id=${selectedOpportunity.idOpp}`, {
-        method: "PUT",
-        // Do NOT set Content-Type header for FormData, browser sets it automatically
-        body: formDataToSend,
+      const response = await api.put(`/opportunites?id=${selectedOpportunity.idOpp}`, formDataToSend, {
+        // Use api.put
+        headers: {
+          "Content-Type": "multipart/form-data", // Ensure correct content type
+        },
       })
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error("Server error response (text):", errorText)
-        try {
-          const errorData = JSON.parse(errorText)
-          throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
-        } catch (jsonError) {
-          console.error("Failed to parse error response as JSON:", jsonError)
-          throw new Error(
-            `Server responded with non-JSON error: ${errorText.substring(0, 200)}... (Status: ${response.status})`,
-          )
-        }
-      }
-
-      const data = await response.json()
-      setOpportunities(opportunities.map((opp) => (opp.idOpp === data.idOpp ? data : opp)))
+      setOpportunities(opportunities.map((opp) => (opp.idOpp === response.data.idOpp ? response.data : opp)))
       resetForm()
       setActiveModalId(null)
       // IMPORTANT: Update selectedOpportunity with the new data to stay on the details page
-      setSelectedOpportunity(data) // Keep this line to stay on the details page
+      setSelectedOpportunity(response.data) // Keep this line to stay on the details page
     } catch (error) {
       console.error("Error updating opportunity:", error)
       setError("Erreur lors de la mise à jour de l'opportunité")
@@ -260,23 +235,9 @@ function Opportunite({ onNavigateToOffre }) {
   }
 
   const handleDeleteOpportunity = async (id) => {
+    if (!canModify) return
     try {
-      const response = await fetch(`http://localhost:8080/api/opportunites/${id}`, {
-        method: "DELETE",
-      })
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error("Server error response (text):", errorText)
-        try {
-          const errorData = JSON.parse(errorText)
-          throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
-        } catch (jsonError) {
-          console.error("Failed to parse error response as JSON:", jsonError)
-          throw new Error(
-            `Server responded with non-JSON error: ${errorText.substring(0, 200)}... (Status: ${response.status})`,
-          )
-        }
-      }
+      await api.delete(`/opportunites/${id}`) // Use api.delete
       setOpportunities(opportunities.filter((opp) => opp.idOpp !== id))
       setActiveModalId(null)
     } catch (error) {
@@ -286,26 +247,14 @@ function Opportunite({ onNavigateToOffre }) {
   }
 
   const updateOpportuniteStatus = async (status, explanation) => {
+    if (!canModify) return
     try {
-      const url = `http://localhost:8080/api/opportunites/${selectedOpportunity.idOpp}/statut?statut=${status}`
+      const url = `/opportunites/${selectedOpportunity.idOpp}/statut?statut=${status}`
       const fullUrl = status === "NO_GO" ? `${url}&justification=${encodeURIComponent(explanation)}` : url
-      const response = await fetch(fullUrl, { method: "PUT" })
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error("Server error response (text):", errorText)
-        try {
-          const errorData = JSON.parse(errorText)
-          throw new Error(errorData.message || `HTTP error! status: ${response.status}`)
-        } catch (jsonError) {
-          console.error("Failed to parse error response as JSON:", jsonError)
-          throw new Error(
-            `Server responded with non-JSON error: ${errorText.substring(0, 200)}... (Status: ${response.status})`,
-          )
-        }
-      }
-      const data = await response.json()
-      setOpportunities(opportunities.map((opp) => (opp.idOpp === data.idOpp ? data : opp)))
-      setSelectedOpportunity(data)
+
+      const response = await api.put(fullUrl) // Use api.put
+      setOpportunities(opportunities.map((opp) => (opp.idOpp === response.data.idOpp ? response.data : opp)))
+      setSelectedOpportunity(response.data)
     } catch (error) {
       console.error("Error updating status:", error)
       setError("Erreur lors de la mise à jour du statut")
@@ -380,22 +329,35 @@ function Opportunite({ onNavigateToOffre }) {
     setShowConfirmNoGo(false)
   }
 
+  if (!canView) {
+    return (
+      <div className="container mt-5">
+        <div className="alert alert-danger text-center">
+          <h4>Accès refusé</h4>
+          <p>Vous n'avez pas les permissions nécessaires pour voir les opportunités.</p>
+        </div>
+      </div>
+    )
+  }
+
   if (selectedOpportunity && !activeModalId) {
     return (
       <div className="p-4">
         <button className="btn btn-secondary mb-3" onClick={handleBackClick}>
           ← Retour à la liste
         </button>
+
         {selectedOpportunity.etat?.statut === "NO_GO" && (
           <div className="alert alert-danger mb-4">
             <h4 className="text-danger">NO GO</h4>
             <p className="mb-0">{selectedOpportunity.etat.justification}</p>
           </div>
         )}
+
         <div className="d-flex justify-content-between align-items-center mb-4">
           <h2>Étude de faisabilité de l'opportunité</h2>
-          <div>
-            {selectedOpportunity.etat?.statut === "GO" ? (
+          {canModify ? (
+            selectedOpportunity.etat?.statut === "GO" ? (
               <button className="btn btn-success" onClick={() => onNavigateToOffre(selectedOpportunity)}>
                 + Offre
               </button>
@@ -418,9 +380,15 @@ function Opportunite({ onNavigateToOffre }) {
                   ❌ NO GO
                 </button>
               </>
-            )}
-          </div>
+            )
+          ) : (
+            <div className="alert alert-info">
+              <i className="fas fa-eye me-2"></i>
+              Mode lecture seule
+            </div>
+          )}
         </div>
+
         {showConfirmGo && (
           <div className="card mb-4 border-success">
             <div className="card-header bg-success text-white">Confirmation GO</div>
@@ -437,6 +405,7 @@ function Opportunite({ onNavigateToOffre }) {
             </div>
           </div>
         )}
+
         {showConfirmNoGo && (
           <div className="card mb-4 border-danger">
             <div className="card-header bg-danger text-white">Confirmation NO GO</div>
@@ -469,6 +438,7 @@ function Opportunite({ onNavigateToOffre }) {
             </div>
           </div>
         )}
+
         <div className="row row-cols-1 row-cols-md-2 g-4">
           {[
             { label: "📌 Nom du projet", value: selectedOpportunity.projectName },
@@ -481,11 +451,12 @@ function Opportunite({ onNavigateToOffre }) {
               <div className="card h-100 shadow-sm">
                 <div className="card-body">
                   <h5 className="card-title text-primary fw-bold">{item.label}</h5>
-                  <p className="card-text text-black font-semibold">{item.value}</p>
+                  <p className="card-text" style={{ color: "#000", fontWeight: 600 }}>{item.value}</p>
                 </div>
               </div>
             </div>
           ))}
+
           <div className="col">
             <div className="card h-100 shadow-sm">
               <div className="card-body">
@@ -493,20 +464,20 @@ function Opportunite({ onNavigateToOffre }) {
                 <ul className="mb-0">
                   {selectedOpportunity.documents?.length > 0 ? (
                     selectedOpportunity.documents.map((doc, index) => (
-                      <li key={`doc-${doc.id || index}`}>
+                      <li key={`doc-${doc.id || index}`} style={{ marginBottom: 8 }}>
                         <a
                           href={`http://localhost:8080/api/opportunites/documents/${doc.path}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-black font-semibold"
+                          style={{ color: "#000", fontWeight: 600, textDecoration: "none" }}
                         >
                           📄 {doc.title} ({doc.fileType})
                         </a>
-                        {doc.description && <p className="text-gray-600 small mb-0">{doc.description}</p>}
+                        {doc.description && <p className="small mb-0" style={{ color: "#6c757d" }}>{doc.description}</p>}
                       </li>
                     ))
                   ) : (
-                    <li className="text-gray-600">Aucun document</li>
+                    <li style={{ color: "#6c757d" }}>Aucun document</li>
                   )}
                 </ul>
               </div>
@@ -525,6 +496,7 @@ function Opportunite({ onNavigateToOffre }) {
           <button type="button" className="btn-close" onClick={() => setError(null)}></button>
         </div>
       )}
+
       <div
         className="rounded-3 p-3 shadow-lg d-flex justify-content-between w-100 mb-3"
         style={{
@@ -535,10 +507,14 @@ function Opportunite({ onNavigateToOffre }) {
         <h4 className="text-white" style={{ fontFamily: "corbel" }}>
           Liste des Opportunités
         </h4>
-        <button className="btn btn-sm rounded-4 bg-white" onClick={() => setActiveModalId("addModal")}>
-          <i className="fa-solid fa-plus me-2 text-teal"></i> Ajouter
-        </button>
+        {canModify && (
+          <button className="btn btn-sm rounded-4 bg-white" onClick={() => setActiveModalId("addModal")}>
+            <i className="fa-solid fa-plus me-2 text-teal"></i> Ajouter
+          </button>
+        )}
       </div>
+
+
       {loading ? (
         <div className="text-center py-5">
           <div className="spinner-border text-primary" role="status">
@@ -555,7 +531,9 @@ function Opportunite({ onNavigateToOffre }) {
                 <th>Budget</th>
                 <th>Deadline</th>
                 <th>Statut</th>
-                <th className="text-center">Actions</th>
+                <th className="text-center">Détails</th>
+                {canModify && <th className="text-center">Modifier</th>}
+                {canModify && <th className="text-center">Supprimer</th>}
               </tr>
             </thead>
             <tbody>
@@ -574,15 +552,17 @@ function Opportunite({ onNavigateToOffre }) {
                       <span className="badge bg-secondary">En cours</span>
                     )}
                   </td>
-                  <td>
-                    <div className="d-flex justify-content-center">
-                      <button
-                        className="btn btn-sm btn-info me-2"
-                        onClick={() => handleDetailsClick(opp)}
-                        title="Détails"
-                      >
-                        <i className="fa-solid fa-search"></i>
-                      </button>
+                  <td className="text-center">
+                    <button
+                      className="btn btn-sm btn-info me-2"
+                      onClick={() => handleDetailsClick(opp)}
+                      title="Détails"
+                    >
+                      <i className="fa-solid fa-search"></i>
+                    </button>
+                  </td>
+                  {canModify && (
+                    <td className="text-center">
                       <button
                         className="btn btn-sm btn-warning me-2"
                         onClick={() => handleEditClick(opp)}
@@ -590,6 +570,10 @@ function Opportunite({ onNavigateToOffre }) {
                       >
                         <i className="fa-solid fa-pen"></i>
                       </button>
+                    </td>
+                  )}
+                  {canModify && (
+                    <td className="text-center">
                       <button
                         className="btn btn-sm btn-danger"
                         onClick={() => {
@@ -600,8 +584,8 @@ function Opportunite({ onNavigateToOffre }) {
                       >
                         <i className="fa-solid fa-trash"></i>
                       </button>
-                    </div>
-                  </td>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -610,7 +594,7 @@ function Opportunite({ onNavigateToOffre }) {
       )}
 
       {/* Modal Ajout */}
-      {activeModalId === "addModal" && (
+      {activeModalId === "addModal" && canModify && (
         <Modal title="Nouvelle Opportunité" color="#008080" onClose={() => setActiveModalId(null)}>
           <form className="d-flex flex-column gap-3">
             <input
@@ -660,19 +644,22 @@ function Opportunite({ onNavigateToOffre }) {
               onChange={handleInputChange}
               rows="3"
             />
+
             <div className="card p-3">
-              <h5>Documents</h5>
+              <h5 style={{ color: "#000" }}>Documents</h5>
+
               {formData.documents.map((doc) => (
                 <div key={`doc-form-${doc.id}`} className="d-flex justify-content-between align-items-center mb-2">
                   <div>
-                    <strong className="text-gray-800 font-semibold">{doc.title}</strong> ({doc.fileType})
-                    {doc.description && <p className="text-gray-600 small mb-0">{doc.description}</p>}
+                    <strong style={{ color: "#000", fontWeight: 700 }}>{doc.title}</strong> ({doc.fileType})
+                    {doc.description && <p className="small mb-0" style={{ color: "#6c757d" }}>{doc.description}</p>}
                   </div>
                   <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveDocument(doc.id)}>
                     <i className="fa-solid fa-trash"></i>
                   </button>
                 </div>
               ))}
+
               <div className="mt-3">
                 <input
                   type="text"
@@ -703,7 +690,7 @@ function Opportunite({ onNavigateToOffre }) {
                 </select>
                 <input type="file" className="form-control mb-2" name="file" onChange={handleDocumentChange} />
                 {newDocument.fileName && (
-                  <p className="text-gray-600 small mt-1">Fichier sélectionné: {newDocument.fileName}</p>
+                  <p className="small mt-1" style={{ color: "#6c757d" }}>Fichier sélectionné: {newDocument.fileName}</p>
                 )}
                 <button
                   type="button"
@@ -715,6 +702,7 @@ function Opportunite({ onNavigateToOffre }) {
                 </button>
               </div>
             </div>
+
             <button
               type="button"
               className="btn btn-primary"
@@ -728,7 +716,7 @@ function Opportunite({ onNavigateToOffre }) {
       )}
 
       {/* Modal Modification */}
-      {activeModalId === "editModal" && selectedOpportunity && (
+      {activeModalId === "editModal" && canModify && selectedOpportunity && (
         <Modal title="Modifier Opportunité" color="green" onClose={() => setActiveModalId(null)}>
           <form className="d-flex flex-column gap-3">
             <input
@@ -778,19 +766,21 @@ function Opportunite({ onNavigateToOffre }) {
               onChange={handleInputChange}
               rows="3"
             />
+
             <div className="card p-3">
               <h5>Documents</h5>
               {formData.documents.map((doc) => (
                 <div key={`doc-edit-${doc.id}`} className="d-flex justify-content-between align-items-center mb-2">
                   <div>
-                    <strong className="text-gray-800 font-semibold">{doc.title}</strong> ({doc.fileType})
-                    {doc.description && <p className="text-gray-600 small mb-0">{doc.description}</p>}
+                    <strong style={{ color: "#000", fontWeight: 700 }}>{doc.title}</strong> ({doc.fileType})
+                    {doc.description && <p className="small mb-0" style={{ color: "#6c757d" }}>{doc.description}</p>}
                   </div>
                   <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveDocument(doc.id)}>
                     <i className="fa-solid fa-trash"></i>
                   </button>
                 </div>
               ))}
+
               <div className="mt-3">
                 <input
                   type="text"
@@ -821,7 +811,7 @@ function Opportunite({ onNavigateToOffre }) {
                 </select>
                 <input type="file" className="form-control mb-2" name="file" onChange={handleDocumentChange} />
                 {newDocument.fileName && (
-                  <p className="text-gray-600 small mt-1">Fichier sélectionné: {newDocument.fileName}</p>
+                  <p className="small mt-1" style={{ color: "#6c757d" }}>Fichier sélectionné: {newDocument.fileName}</p>
                 )}
                 <button
                   type="button"
@@ -833,6 +823,7 @@ function Opportunite({ onNavigateToOffre }) {
                 </button>
               </div>
             </div>
+
             <button
               type="button"
               className="btn btn-primary"
@@ -846,7 +837,7 @@ function Opportunite({ onNavigateToOffre }) {
       )}
 
       {/* Modal Suppression */}
-      {activeModalId === "deleteModal" && selectedOpportunity && (
+      {activeModalId === "deleteModal" && canModify && selectedOpportunity && (
         <Modal title="Supprimer Opportunité" color="red" onClose={() => setActiveModalId(null)}>
           <p>Confirmer la suppression de l'opportunité "{selectedOpportunity.projectName}" ?</p>
           <button className="btn btn-danger" onClick={() => handleDeleteOpportunity(selectedOpportunity.idOpp)}>
