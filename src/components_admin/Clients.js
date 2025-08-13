@@ -26,14 +26,28 @@ const FormClient = ({ formData, onChange, onSubmit, editMode = false, readOnly =
         required
         readOnly={readOnly}
       />
-      <input
-        className="form-control"
-        name="webSite"
-        placeholder="Site Web"
-        value={formData.webSite}
-        onChange={onChange}
-        readOnly={readOnly}
-      />
+      <div className="row">
+        <div className="col-md-6">
+          <input
+            className="form-control"
+            name="country"
+            placeholder="Pays"
+            value={formData.country || ""}
+            onChange={onChange}
+            readOnly={readOnly}
+          />
+        </div>
+        <div className="col-md-6">
+          <input
+            className="form-control"
+            name="city"
+            placeholder="Ville"
+            value={formData.city || ""}
+            onChange={onChange}
+            readOnly={readOnly}
+          />
+        </div>
+      </div>
       <input
         className="form-control"
         name="address"
@@ -42,6 +56,28 @@ const FormClient = ({ formData, onChange, onSubmit, editMode = false, readOnly =
         onChange={onChange}
         readOnly={readOnly}
       />
+      <div className="row">
+        <div className="col-md-6">
+          <input
+            className="form-control"
+            name="webSite"
+            placeholder="Site Web"
+            value={formData.webSite}
+            onChange={onChange}
+            readOnly={readOnly}
+          />
+        </div>
+        <div className="col-md-6">
+          <input
+            className="form-control"
+            name="landline"
+            placeholder="Téléphone fixe"
+            value={formData.landline || ""}
+            onChange={onChange}
+            readOnly={readOnly}
+          />
+        </div>
+      </div>
       <input
         className="form-control"
         name="secteur"
@@ -220,6 +256,9 @@ export default function Clients() {
     webSite: "",
     address: "",
     secteur: "",
+    country: "",
+    city: "",
+    landline: "",
   })
 
   const canModify = authService.canModifyClients()
@@ -293,6 +332,9 @@ export default function Clients() {
         webSite: client.webSite || "",
         address: client.address || "",
         secteur: client.secteur || "",
+        country: client.country || "",
+        city: client.city || "",
+        landline: client.landline || "",
       })
     } else {
       setFormData({
@@ -301,6 +343,9 @@ export default function Clients() {
         webSite: "",
         address: "",
         secteur: "",
+        country: "",
+        city: "",
+        landline: "",
       })
     }
   }
@@ -345,9 +390,12 @@ export default function Clients() {
           <table className="table">
             <thead>
               <tr>
+                <th>Code</th>
                 <th>Client</th>
+                <th>Ville / Pays</th>
                 <th>Adresse</th>
                 <th>Site Web</th>
+                <th>Téléphone fixe</th>
                 <th>Secteur</th>
                 <th>Contacts</th>
                 <th>Détails</th>
@@ -358,7 +406,13 @@ export default function Clients() {
             <tbody>
               {clients.map((client) => (
                 <tr key={client.idClient}>
+                  <td><span className="badge bg-dark">{client.clientCode || "-"}</span></td>
                   <td>{client.name}</td>
+                  <td>
+                    {client.city ? client.city : "-"}
+                    {client.city && client.country ? " / " : ""}
+                    {client.country ? client.country : ""}
+                  </td>
                   <td>{client.address || "-"}</td>
                   <td>
                     {client.webSite ? (
@@ -369,6 +423,7 @@ export default function Clients() {
                       "-"
                     )}
                   </td>
+                  <td>{client.landline || "-"}</td>
                   <td>{client.secteur || "-"}</td>
                   <td className="text-center">
                     <button className="btn btn-sm" onClick={() => toggleModal("contacts", client)}>
@@ -436,13 +491,25 @@ export default function Clients() {
         <Modal title="Détails du Client" color="#C9A13C" onClose={() => toggleModal(null)}>
           <ul className="list-unstyled">
             <li>
+              <strong>Code client:</strong> <span className="badge bg-dark">{selectedClient?.clientCode || "-"}</span>
+            </li>
+            <li>
               <strong>Nom:</strong> {selectedClient?.name}
+            </li>
+            <li>
+              <strong>Pays:</strong> {selectedClient?.country || "-"}
+            </li>
+            <li>
+              <strong>Ville:</strong> {selectedClient?.city || "-"}
+            </li>
+            <li>
+              <strong>Adresse:</strong> {selectedClient?.address || "-"}
             </li>
             <li>
               <strong>Site Web:</strong> {selectedClient?.webSite || "-"}
             </li>
             <li>
-              <strong>Adresse:</strong> {selectedClient?.address || "-"}
+              <strong>Téléphone fixe:</strong> {selectedClient?.landline || "-"}
             </li>
             <li>
               <strong>Secteur:</strong> {selectedClient?.secteur || "-"}

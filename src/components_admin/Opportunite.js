@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useEffect } from "react"
@@ -8,10 +7,9 @@ import "bootstrap/dist/js/bootstrap.bundle.min.js"
 import api from "../services/api" // Change from "@/services/api"
 import authService from "../services/authService"
 
-
-
 function Opportunite({ onNavigateToOffre }) {
   const [opportunities, setOpportunities] = useState([])
+  const [archivedOpportunities, setArchivedOpportunities] = useState([])
   const [clients, setClients] = useState([])
   const [selectedOpportunity, setSelectedOpportunity] = useState(null)
   const [activeModalId, setActiveModalId] = useState(null)
@@ -20,6 +18,7 @@ function Opportunite({ onNavigateToOffre }) {
   const [showConfirmGo, setShowConfirmGo] = useState(false)
   const [showConfirmNoGo, setShowConfirmNoGo] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [showArchived, setShowArchived] = useState(false)
   const [formData, setFormData] = useState({
     projectName: "",
     budget: "",
@@ -42,6 +41,7 @@ function Opportunite({ onNavigateToOffre }) {
 
   useEffect(() => {
     fetchOpportunites()
+    fetchArchivedOpportunites()
     fetchClients()
   }, [])
 
@@ -55,6 +55,16 @@ function Opportunite({ onNavigateToOffre }) {
       setError("Erreur lors du chargement des opportunités")
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchArchivedOpportunites = async () => {
+    try {
+      const response = await api.get("/opportunites/archived?_embed=documents&_embed=etat")
+      setArchivedOpportunities(response.data)
+    } catch (error) {
+      console.error("Error fetching archived opportunities:", error)
+      setError("Erreur lors du chargement des opportunités archivées")
     }
   }
 
@@ -234,15 +244,28 @@ function Opportunite({ onNavigateToOffre }) {
     }
   }
 
-  const handleDeleteOpportunity = async (id) => {
+  const handleArchiveOpportunity = async (id) => {
     if (!canModify) return
     try {
-      await api.delete(`/opportunites/${id}`) // Use api.delete
+      const response = await api.put(`/opportunites/${id}/archive`)
       setOpportunities(opportunities.filter((opp) => opp.idOpp !== id))
+      setArchivedOpportunities([...archivedOpportunities, response.data])
       setActiveModalId(null)
     } catch (error) {
-      console.error("Error deleting opportunity:", error)
-      setError("Erreur lors de la suppression de l'opportunité")
+      console.error("Error archiving opportunity:", error)
+      setError("Erreur lors de l'archivage de l'opportunité")
+    }
+  }
+
+  const handleUnarchiveOpportunity = async (id) => {
+    if (!canModify) return
+    try {
+      const response = await api.put(`/opportunites/${id}/unarchive`)
+      setArchivedOpportunities(archivedOpportunities.filter((opp) => opp.idOpp !== id))
+      setOpportunities([...opportunities, response.data])
+    } catch (error) {
+      console.error("Error unarchiving opportunity:", error)
+      setError("Erreur lors de la restauration de l'opportunité")
     }
   }
 
@@ -384,7 +407,7 @@ function Opportunite({ onNavigateToOffre }) {
           ) : (
             <div className="alert alert-info">
               <i className="fas fa-eye me-2"></i>
-              Mode lecture seule
+              Mode lecture seule - Vous ne pouvez pas modifier le statut des opportunités
             </div>
           )}
         </div>
@@ -451,7 +474,7 @@ function Opportunite({ onNavigateToOffre }) {
               <div className="card h-100 shadow-sm">
                 <div className="card-body">
                   <h5 className="card-title text-primary fw-bold">{item.label}</h5>
-                  <p className="card-text" style={{ color: "#000", fontWeight: 600 }}>{item.value}</p>
+                  <p className="card-text text-black font-semibold">{item.value}</p>
                 </div>
               </div>
             </div>
@@ -464,20 +487,21 @@ function Opportunite({ onNavigateToOffre }) {
                 <ul className="mb-0">
                   {selectedOpportunity.documents?.length > 0 ? (
                     selectedOpportunity.documents.map((doc, index) => (
-                      <li key={`doc-${doc.id || index}`} style={{ marginBottom: 8 }}>
+                      <li key={`doc-${doc.id || index}`}>
                         <a
                           href={`http://localhost:8080/api/opportunites/documents/${doc.path}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          style={{ color: "#000", fontWeight: 600, textDecoration: "none" }}
+                          className="text-black font-semibold"
+                          style={{ color: 'black', fontWeight: 600 }}
                         >
                           📄 {doc.title} ({doc.fileType})
                         </a>
-                        {doc.description && <p className="small mb-0" style={{ color: "#6c757d" }}>{doc.description}</p>}
+                        {doc.description && <p className="text-muted small mb-0" style={{ color: 'black' }}>{doc.description}</p>}
                       </li>
                     ))
                   ) : (
-                    <li style={{ color: "#6c757d" }}>Aucun document</li>
+                    <li className="text-gray-600">Aucun document</li>
                   )}
                 </ul>
               </div>
@@ -505,13 +529,27 @@ function Opportunite({ onNavigateToOffre }) {
         }}
       >
         <h4 className="text-white" style={{ fontFamily: "corbel" }}>
-          Liste des Opportunités
+          {showArchived ? "Opportunités Archivées" : "Liste des Opportunités"}
         </h4>
-        {canModify && (
-          <button className="btn btn-sm rounded-4 bg-white" onClick={() => setActiveModalId("addModal")}>
-            <i className="fa-solid fa-plus me-2 text-teal"></i> Ajouter
+        <div>
+          <button
+            className={`btn btn-sm rounded-4 bg-white me-2 ${showArchived ? "" : "active"}`}
+            onClick={() => setShowArchived(false)}
+          >
+            <i className="fa-solid fa-list me-1"></i> Actives
           </button>
-        )}
+          <button
+            className={`btn btn-sm rounded-4 bg-white me-2 ${showArchived ? "active" : ""}`}
+            onClick={() => setShowArchived(true)}
+          >
+            <i className="fa-solid fa-archive me-1"></i> Archivées
+          </button>
+          {canModify && !showArchived && (
+            <button className="btn btn-sm rounded-4 bg-white" onClick={() => setActiveModalId("addModal")}>
+              <i className="fa-solid fa-plus me-2 text-teal"></i> Ajouter
+            </button>
+          )}
+        </div>
       </div>
 
 
@@ -526,19 +564,21 @@ function Opportunite({ onNavigateToOffre }) {
           <table className="table table-striped mt-3">
             <thead>
               <tr>
+                <th>ID</th>
                 <th>Projet</th>
-                <th>Client</th>
+                <th>Maitre d oeuvrage</th>
                 <th>Budget</th>
                 <th>Deadline</th>
                 <th>Statut</th>
                 <th className="text-center">Détails</th>
-                {canModify && <th className="text-center">Modifier</th>}
-                {canModify && <th className="text-center">Supprimer</th>}
+                {canModify && !showArchived && <th className="text-center">Modifier</th>}
+                {canModify && <th className="text-center">{showArchived ? "Restaurer" : "Archiver"}</th>}
               </tr>
             </thead>
             <tbody>
-              {opportunities.map((opp) => (
+              {(showArchived ? archivedOpportunities : opportunities).map((opp) => (
                 <tr key={`opp-${opp.idOpp}`}>
+                  <td>{opp.idOpp}</td>
                   <td>{opp.projectName}</td>
                   <td>{opp.client?.name || "Non spécifié"}</td>
                   <td>{opp.budget || "Non spécifié"}</td>
@@ -561,7 +601,7 @@ function Opportunite({ onNavigateToOffre }) {
                       <i className="fa-solid fa-search"></i>
                     </button>
                   </td>
-                  {canModify && (
+                  {canModify && !showArchived && (
                     <td className="text-center">
                       <button
                         className="btn btn-sm btn-warning me-2"
@@ -574,16 +614,26 @@ function Opportunite({ onNavigateToOffre }) {
                   )}
                   {canModify && (
                     <td className="text-center">
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() => {
-                          setSelectedOpportunity(opp)
-                          setActiveModalId("deleteModal")
-                        }}
-                        title="Supprimer"
-                      >
-                        <i className="fa-solid fa-trash"></i>
-                      </button>
+                      {showArchived ? (
+                        <button
+                          className="btn btn-sm btn-success"
+                          onClick={() => handleUnarchiveOpportunity(opp.idOpp)}
+                          title="Restaurer"
+                        >
+                          <i className="fa-solid fa-undo"></i>
+                        </button>
+                      ) : (
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => {
+                            setSelectedOpportunity(opp)
+                            setActiveModalId("archiveModal")
+                          }}
+                          title="Archiver"
+                        >
+                          <i className="fa-solid fa-archive"></i>
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -646,13 +696,12 @@ function Opportunite({ onNavigateToOffre }) {
             />
 
             <div className="card p-3">
-              <h5 style={{ color: "#000" }}>Documents</h5>
-
+              <h5  style={{ color: "#000"}} >Documents (RC ,CPS , FICHE DE SYNTHESE) </h5>
               {formData.documents.map((doc) => (
                 <div key={`doc-form-${doc.id}`} className="d-flex justify-content-between align-items-center mb-2">
                   <div>
-                    <strong style={{ color: "#000", fontWeight: 700 }}>{doc.title}</strong> ({doc.fileType})
-                    {doc.description && <p className="small mb-0" style={{ color: "#6c757d" }}>{doc.description}</p>}
+                    <strong g style={{ color: "#000", fontWeight: 700 }} className="text-gray-800 font-semibold">{doc.title}</strong> <p  style={{ color: "#6c757d" }}>({doc.fileType})</p>
+                    {doc.description && <p className="text-gray-600 small mb-0"  style={{ color: "#6c757d" }}>{doc.description}</p>}
                   </div>
                   <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveDocument(doc.id)}>
                     <i className="fa-solid fa-trash"></i>
@@ -690,7 +739,7 @@ function Opportunite({ onNavigateToOffre }) {
                 </select>
                 <input type="file" className="form-control mb-2" name="file" onChange={handleDocumentChange} />
                 {newDocument.fileName && (
-                  <p className="small mt-1" style={{ color: "#6c757d" }}>Fichier sélectionné: {newDocument.fileName}</p>
+                  <p className="text-gray-600 small mt-1">Fichier sélectionné: {newDocument.fileName}</p>
                 )}
                 <button
                   type="button"
@@ -768,17 +817,17 @@ function Opportunite({ onNavigateToOffre }) {
             />
 
             <div className="card p-3">
-              <h5>Documents</h5>
+              <h5 style={{ color: "#000" }}>Documents (RC ,CPS , FICHE DE SYNTHESE)</h5>
               {formData.documents.map((doc) => (
-                <div key={`doc-edit-${doc.id}`} className="d-flex justify-content-between align-items-center mb-2">
-                  <div>
-                    <strong style={{ color: "#000", fontWeight: 700 }}>{doc.title}</strong> ({doc.fileType})
-                    {doc.description && <p className="small mb-0" style={{ color: "#6c757d" }}>{doc.description}</p>}
-                  </div>
-                  <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveDocument(doc.id)}>
-                    <i className="fa-solid fa-trash"></i>
-                  </button>
-                </div>
+                              <div key={`doc-form-${doc.id}`} className="d-flex justify-content-between align-items-center mb-2">
+                                <div>
+                                  <strong style={{ color: "#000", fontWeight: 700 }}>{doc.title}</strong> ({doc.fileType})
+                                  {doc.description && <p className="small mb-0" style={{ color: "#6c757d" }}>{doc.description}</p>}
+                                </div>
+                                <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveDocument(doc.id)}>
+                                  <i className="fa-solid fa-trash"></i>
+                                </button>
+                              </div>
               ))}
 
               <div className="mt-3">
@@ -811,7 +860,7 @@ function Opportunite({ onNavigateToOffre }) {
                 </select>
                 <input type="file" className="form-control mb-2" name="file" onChange={handleDocumentChange} />
                 {newDocument.fileName && (
-                  <p className="small mt-1" style={{ color: "#6c757d" }}>Fichier sélectionné: {newDocument.fileName}</p>
+                  <p className="text-gray-600 small mt-1">Fichier sélectionné: {newDocument.fileName}</p>
                 )}
                 <button
                   type="button"
@@ -836,12 +885,13 @@ function Opportunite({ onNavigateToOffre }) {
         </Modal>
       )}
 
-      {/* Modal Suppression */}
-      {activeModalId === "deleteModal" && canModify && selectedOpportunity && (
-        <Modal title="Supprimer Opportunité" color="red" onClose={() => setActiveModalId(null)}>
-          <p>Confirmer la suppression de l'opportunité "{selectedOpportunity.projectName}" ?</p>
-          <button className="btn btn-danger" onClick={() => handleDeleteOpportunity(selectedOpportunity.idOpp)}>
-            Oui, supprimer
+      {/* Modal Archivage */}
+      {activeModalId === "archiveModal" && canModify && selectedOpportunity && (
+        <Modal title="Archiver Opportunité" color="orange" onClose={() => setActiveModalId(null)}>
+          <p>Confirmer l'archivage de l'opportunité "{selectedOpportunity.projectName}" ?</p>
+          <p className="text-muted">Cette opportunité sera déplacée dans les archives et pourra être restaurée ultérieurement.</p>
+          <button className="btn btn-warning" onClick={() => handleArchiveOpportunity(selectedOpportunity.idOpp)}>
+            Oui, archiver
           </button>
           <button className="btn btn-secondary ms-2" onClick={() => setActiveModalId(null)}>
             Annuler
