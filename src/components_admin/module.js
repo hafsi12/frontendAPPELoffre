@@ -68,7 +68,6 @@ const ContractManagement = () => {
       const data = response.data
       setContrats(data)
     } catch (err) {
-      // Suppression du log d'erreur
       setError(`Erreur lors du chargement des contrats: ${err.message}`)
     } finally {
       setLoading(false)
@@ -107,6 +106,10 @@ const ContractManagement = () => {
       return []
     }
   }, [])
+
+  useEffect(() => {
+    fetchContrats()
+  }, [fetchContrats])
 
   useEffect(() => {
     if (canView) {
@@ -760,18 +763,26 @@ const ContractManagement = () => {
                     <td style={{ color: "black" }}>#{contrat.id}</td>
                     <td style={{ color: "black" }}>{contrat.nameClient}</td>
                     <td style={{ color: "black" }}>
-                      {safeGet(
-                        contrat,
-                        "offre.opportunite.projectName",
-                        contrat.details?.split(":")[1]?.trim() || "N/A",
-                      )}
+                      {safeGet(contrat, "offre.opportunite.projectName") ||
+                        safeGet(contrat, "projectName") ||
+                        (contrat.details && contrat.details.includes(":")
+                          ? contrat.details.split(":")[1]?.trim()
+                          : contrat.details) ||
+                        "Projet non spécifié"}
                     </td>
                     <td style={{ color: "black" }}>
-                      {safeGet(contrat, "offre.budget")
-                        ? `${contrat.offre.budget} MAD`
-                        : contrat.budget
-                          ? `${contrat.budget} MAD`
-                          : "N/A"}
+                      {(() => {
+                        const offreBudget = safeGet(contrat, "offre.budget")
+                        const contratBudget = contrat.budget
+
+                        if (offreBudget && offreBudget !== 0) {
+                          return `${offreBudget.toLocaleString()} MAD`
+                        } else if (contratBudget && contratBudget !== 0) {
+                          return `${contratBudget.toLocaleString()} MAD`
+                        } else {
+                          return "Budget non défini"
+                        }
+                      })()}
                     </td>
                     <td>
                       <span className={`badge ${getStatusBadge(contrat.statut || "ACTIF")}`}>
@@ -914,12 +925,18 @@ const ContractManagement = () => {
                                 </div>
                                 <div className="card-body">
                                   <p style={{ color: "black" }}>
-                                    <strong style={{ color: "black" }}>Budget:</strong>{" "}
-                                    {safeGet(contrat, "offre.budget")
-                                      ? `${contrat.offre.budget} MAD`
-                                      : contrat.budget
-                                        ? `${contrat.budget} MAD`
-                                        : "N/A"}
+                                    <strong style={{ color: "black" }}>Budget:</strong> {(() => {
+                                      const offreBudget = safeGet(contrat, "offre.budget")
+                                      const contratBudget = contrat.budget
+
+                                      if (offreBudget && offreBudget !== 0) {
+                                        return `${offreBudget.toLocaleString()} MAD`
+                                      } else if (contratBudget && contratBudget !== 0) {
+                                        return `${contratBudget.toLocaleString()} MAD`
+                                      } else {
+                                        return "Budget non défini"
+                                      }
+                                    })()}
                                   </p>
                                   {contrat.offre ? (
                                     <>
@@ -1014,7 +1031,12 @@ const ContractManagement = () => {
                                     <div className="card-body">
                                       <p style={{ color: "black" }}>
                                         <strong style={{ color: "black" }}>Projet:</strong>{" "}
-                                        {safeGet(contrat, "offre.opportunite.projectName", "N/A")}
+                                        {safeGet(contrat, "offre.opportunite.projectName") ||
+                                          safeGet(contrat, "projectName") ||
+                                          (contrat.details && contrat.details.includes(":")
+                                            ? contrat.details.split(":")[1]?.trim()
+                                            : contrat.details) ||
+                                          "Projet non spécifié"}
                                       </p>
                                       <p style={{ color: "black" }}>
                                         <strong style={{ color: "black" }}>Client:</strong>{" "}
@@ -1167,20 +1189,40 @@ const ContractManagement = () => {
                     </div>
                     {selectedOffre && (
                       <div className="col-12">
-                        <div className="alert alert-info">
-                          <h6 style={{ color: "black" }}>📊 Résumé de l'Offre Sélectionnée:</h6>
-                          <p style={{ color: "black" }}>
-                            <strong>Projet:</strong> {safeGet(selectedOffre, "opportunite.projectName", "N/A")}
+                        <div
+                          className="alert alert-info"
+                          style={{ backgroundColor: "#f8f9fa", border: "1px solid #dee2e6" }}
+                        >
+                          <h6 style={{ color: "#000000", fontWeight: "bold" }}>
+                            📊 Résumé de l'Offre Sélectionnée:
+                          </h6>
+
+                          <p style={{ margin: "5px 0" }}>
+                            <strong style={{ color: "black" }}>Projet:</strong>{" "}
+                            <span style={{ color: "green" }}>
+                              {safeGet(selectedOffre, "opportunite.projectName", "N/A")}
+                            </span>
                           </p>
-                          <p style={{ color: "black" }}>
-                            <strong>Budget:</strong> {selectedOffre.budget} MAD
+
+                          <p style={{ margin: "5px 0" }}>
+                            <strong style={{ color: "black" }}>Budget:</strong>{" "}
+                            <span style={{ color: "green" }}>{selectedOffre.budget} MAD</span>
                           </p>
-                          <p style={{ color: "black" }}>
-                            <strong>Tâches:</strong> {safeGet(selectedOffre, "taches.length", 0)}
+
+                          <p style={{ margin: "5px 0" }}>
+                            <strong style={{ color: "black" }}>Tâches:</strong>{" "}
+                            <span style={{ color: "green" }}>
+                              {safeGet(selectedOffre, "taches.length", 0)}
+                            </span>
                           </p>
-                          <p style={{ color: "black" }}>
-                            <strong>Documents:</strong> {safeGet(selectedOffre, "documents.length", 0)}
+
+                          <p style={{ margin: "5px 0" }}>
+                            <strong style={{ color: "black" }}>Documents:</strong>{" "}
+                            <span style={{ color: "green" }}>
+                              {safeGet(selectedOffre, "documents.length", 0)}
+                            </span>
                           </p>
+
                         </div>
                       </div>
                     )}
@@ -1508,7 +1550,7 @@ const ContractManagement = () => {
                             {selectedContrat.livrables.map((livrable) => (
                               <tr key={livrable.id || `livrable-${Math.random()}`}>
                                 <td style={{ color: "black" }}>
-                                  <strong>{livrable.titre}</strong>
+                                  <strong style={{ color: "green" }}>{livrable.titre}</strong>
                                   {livrable.fichierJoint && (
                                     <div>
                                       <small style={{ color: "black" }}>
@@ -1525,7 +1567,7 @@ const ContractManagement = () => {
                                   {new Date(livrable.dateLivraison).toLocaleDateString()}
                                 </td>
                                 <td style={{ color: "black" }}>
-                                  <strong>{livrable.montant} MAD</strong>
+                                  <strong style={{ color: "green" }}>{livrable.montant} MAD</strong>
                                 </td>
                                 <td>
                                   <span

@@ -7,7 +7,7 @@ import "bootstrap/dist/js/bootstrap.bundle.min.js"
 import api from "../services/api" // Change from "@/services/api"
 import authService from "../services/authService"
 
-function Opportunite({ onNavigateToOffre }) {
+function Opportunite({ onNavigateToOffre = null }) {
   const [opportunities, setOpportunities] = useState([])
   const [archivedOpportunities, setArchivedOpportunities] = useState([])
   const [clients, setClients] = useState([])
@@ -381,7 +381,14 @@ function Opportunite({ onNavigateToOffre }) {
           <h2>Étude de faisabilité de l'opportunité</h2>
           {canModify ? (
             selectedOpportunity.etat?.statut === "GO" ? (
-              <button className="btn btn-success" onClick={() => onNavigateToOffre(selectedOpportunity)}>
+              <button className="btn btn-success" onClick={() => {
+                if (onNavigateToOffre) {
+                  onNavigateToOffre(selectedOpportunity);
+                } else {
+                  // Show alert or handle navigation within the same page
+                  alert(`Navigation vers le formulaire d'offre pour l'opportunité ID: ${selectedOpportunity.idOpp}. Veuillez configurer la navigation dans votre application principale.`);
+                }
+              }}>
                 + Offre
               </button>
             ) : selectedOpportunity.etat?.statut === "NO_GO" ? (

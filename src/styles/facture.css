@@ -1,0 +1,60 @@
+/* Styles spécifiques pour les factures */
+.facture-pdf {
+  max-width: 210mm;
+  margin: 0 auto;
+  background: white;
+}
+
+.facture-content {
+  min-height: 297mm;
+  padding: 20mm;
+}
+
+/* Styles pour l'impression */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  .facture-pdf {
+    margin: 0;
+    box-shadow: none;
+  }
+
+  .facture-content {
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  body {
+    background: white !important;
+  }
+
+  .table {
+    font-size: 12px;
+  }
+
+  .badge {
+    border: 1px solid #000 !important;
+    color: #000 !important;
+    background: transparent !important;
+  }
+}
+
+/* Animation pour les badges de statut */
+.badge {
+  transition: all 0.3s ease;
+}
+
+.table tbody tr:hover {
+  background-color: rgba(0, 123, 255, 0.1);
+}
+
+/* Styles pour les montants */
+.text-danger {
+  font-weight: bold;
+}
+
+.text-success {
+  font-weight: bold;
+}

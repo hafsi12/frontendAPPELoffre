@@ -219,7 +219,7 @@ const ClientContacts = ({ clientId }) => {
               {contacts.map((contact) => (
                 <li key={contact.id} className="list-group-item">
                   <div>
-                    <strong>{contact.name}</strong>
+                    <strong style={{ color: "green" }}>{contact.name}</strong>
                   </div>
                   <div>{contact.position}</div>
                   <div>{contact.email}</div>
@@ -489,35 +489,79 @@ export default function Clients() {
 
       {activeModalId === "details" && (
         <Modal title="Détails du Client" color="#C9A13C" onClose={() => toggleModal(null)}>
-          <ul className="list-unstyled">
-            <li>
-              <strong>Code client:</strong> <span className="badge bg-dark">{selectedClient?.clientCode || "-"}</span>
-            </li>
-            <li>
-              <strong>Nom:</strong> {selectedClient?.name}
-            </li>
-            <li>
-              <strong>Pays:</strong> {selectedClient?.country || "-"}
-            </li>
-            <li>
-              <strong>Ville:</strong> {selectedClient?.city || "-"}
-            </li>
-            <li>
-              <strong>Adresse:</strong> {selectedClient?.address || "-"}
-            </li>
-            <li>
-              <strong>Site Web:</strong> {selectedClient?.webSite || "-"}
-            </li>
-            <li>
-              <strong>Téléphone fixe:</strong> {selectedClient?.landline || "-"}
-            </li>
-            <li>
-              <strong>Secteur:</strong> {selectedClient?.secteur || "-"}
-            </li>
-            <li>
-              <strong>Statut:</strong> {selectedClient?.archived ? "Archivé" : "Actif"}
-            </li>
-          </ul>
+          <div className="p-3">
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Code client:</strong>
+                <br />
+                <span className="badge bg-dark mt-1">{selectedClient?.clientCode || "-"}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Nom:</strong>
+                <br />
+                <span className="mt-1 d-block">{selectedClient?.name}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Pays:</strong>
+                <br />
+                <span className="mt-1 d-block">{selectedClient?.country || "-"}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Ville:</strong>
+                <br />
+                <span className="mt-1 d-block">{selectedClient?.city || "-"}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Adresse:</strong>
+                <br />
+                <span className="mt-1 d-block">{selectedClient?.address || "-"}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Site Web:</strong>
+                <br />
+                <span className="mt-1 d-block">{selectedClient?.webSite || "-"}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Téléphone fixe:</strong>
+                <br />
+                <span className="mt-1 d-block">{selectedClient?.landline || "-"}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Secteur:</strong>
+                <br />
+                <span className="mt-1 d-block">{selectedClient?.secteur || "-"}</span>
+              </div>
+            </div>
+
+            <div className="mb-4 p-3 border rounded" style={{ backgroundColor: "#f8f9fa" }}>
+              <div className="mb-3">
+                <strong className="text-primary">Statut:</strong>
+                <br />
+                <span className="mt-1 d-block">{selectedClient?.archived ? "Archivé" : "Actif"}</span>
+              </div>
+            </div>
+          </div>
         </Modal>
       )}
 

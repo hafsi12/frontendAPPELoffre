@@ -1392,22 +1392,33 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
                   <div className="row">
                     <div className="col-md-6">
                       <p>
-                        <strong>Budget:</strong> {offreFormData.budget} MAD
+                        <strong style={{ color: "black" }}>Budget:</strong>{" "}
+                        <span style={{ color: "green" }}>{offreFormData.budget} MAD</span>
                       </p>
+
+
+
                     </div>
                     <div className="col-md-6">
                       <p>
-                        <strong>Opportunité liée:</strong>{" "}
-                        {initialOpportunity?.projectName ||
-                          opportunitiesList.find((opp) => opp.idOpp === offreFormData.incomingOpportuniteId)
-                            ?.projectName ||
-                          "Non spécifié"}
+                        <strong style={{ color: "black" }}>Opportunité liée:</strong>{" "}
+                        <span style={{ color: "green" }}>
+                          {initialOpportunity?.projectName ||
+                            opportunitiesList.find((opp) => opp.idOpp === offreFormData.incomingOpportuniteId)
+                              ?.projectName ||
+                            "Non spécifié"}
+                        </span>
                       </p>
+
                     </div>
                     <div className="col-12">
                       <p>
-                        <strong>Détails:</strong> {offreFormData.detail || "Non spécifié"}
+                        <strong style={{ color: "black" }}>Détails:</strong>{" "}
+                        <span style={{ color: "green" }}>
+                          {offreFormData.detail || "Non spécifié"}
+                        </span>
                       </p>
+
                     </div>
                   </div>
                 </div>
@@ -1423,13 +1434,15 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
                           className="list-group-item d-flex justify-content-between align-items-center text-black"
                         >
                           <div>
-                            <strong>{tache.titre}</strong> - {tache.detail}
+                            <strong style={{ color: "black" }}>{tache.titre}</strong> -{" "}
+                            <span style={{ color: "green" }}>{tache.detail}</span>
                             <br />
                             <small className="text-muted">
                               Assigné à: {tache.assignedPerson} | Date limite:{" "}
                               {new Date(tache.deadline).toLocaleDateString()}
                             </small>
                           </div>
+
                           {tache.checked && <span className="badge bg-success">Terminée</span>}
                         </li>
                       ))}
@@ -1450,10 +1463,12 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
                           className="list-group-item d-flex justify-content-between align-items-center text-black"
                         >
                           <div>
-                            <strong>{doc.namefile}</strong> ({doc.type})
+                            <strong style={{ color: "black" }}>{doc.namefile}</strong>{" "}
+                            (<span style={{ color: "green" }}>{doc.type}</span>)
                             <br />
                             <small className="text-muted">{doc.description}</small>
                           </div>
+
                         </li>
                       ))}
                     </ul>

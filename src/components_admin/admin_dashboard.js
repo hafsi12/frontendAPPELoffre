@@ -3,416 +3,509 @@ import { useState, useEffect, useCallback } from "react"
 import "bootstrap/dist/css/bootstrap.min.css"
 import "bootstrap/dist/js/bootstrap.bundle.min.js"
 import "../styles/dashboard.css"
-import CustomChart from "./customChart"
+import { BarChart, PieChart, LineChart, AreaChart, ScatterChart } from "./AdvancedCharts"
 import authService from "../services/authService"
 import api from "../services/api"
 
-function Admin_Dashboard_Content() {
-  const [selected, setSelected] = useState("")
-  const [totalOpportunities, setTotalOpportunities] = useState(0)
-  const [totalClients, setTotalClients] = useState(0)
-  const [totalOffres, setTotalOffres] = useState(0)
-  const [totalContrats, setTotalContrats] = useState(0)
+function Enhanced_Dashboard_Content() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [overviewStats, setOverviewStats] = useState({})
+  const [opportunitiesStatusData, setOpportunitiesStatusData] = useState({ labels: [], data: [] })
+  const [offresAdjugeData, setOffresAdjugeData] = useState({ labels: [], data: [] })
+  const [monthlyTrendData, setMonthlyTrendData] = useState({ labels: [], data: [] })
+  const [contractsStatusData, setContractsStatusData] = useState({ labels: [], data: [] })
+  const [facturesPaymentData, setFacturesPaymentData] = useState({ labels: [], data: [] })
+  const [monthlyRevenueData, setMonthlyRevenueData] = useState({ labels: [], data: [] })
+  const [topClientsData, setTopClientsData] = useState({ labels: [], data: [] })
+  const [livrablesValidationData, setLivrablesValidationData] = useState({ labels: [], data: [] })
+  const [usersRoleData, setUsersRoleData] = useState({ labels: [], data: [] })
+  const [advancedAnalytics, setAdvancedAnalytics] = useState({})
+  const [activeTab, setActiveTab] = useState('overview')
+
   const user = authService.getCurrentUser()
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchAllStatistics = useCallback(async () => {
     setLoading(true)
     setError(null)
+
     try {
-      const requests = []
+      const endpoints = [
+        '/statistics/overview',
+        '/statistics/opportunites/by-status',
+        '/statistics/offres/by-adjuge',
+        '/statistics/opportunites/monthly-trend',
+        '/statistics/contrats/by-status',
+        '/statistics/factures/by-payment-status',
+        '/statistics/revenue/monthly',
+        '/statistics/clients/top-opportunities',
+        '/statistics/livrables/by-validation-status',
+        '/statistics/users/by-role',
+        '/statistics/advanced-analytics'
+      ]
 
-      // Tous les utilisateurs peuvent voir les statistiques
-      if (authService.canViewClients()) {
-        requests.push(api.get("/clients"))
-      }
-      if (authService.canViewOpportunities()) {
-        requests.push(api.get("/opportunites"))
-      }
-      if (authService.canViewOffers()) {
-        requests.push(api.get("/offres"))
-      }
-      if (authService.canViewContracts()) {
-        requests.push(api.get("/contrats"))
-      }
+      const responses = await Promise.all(
+        endpoints.map(endpoint =>
+          api.get(endpoint).catch(err => {
+            console.warn(`Failed to fetch ${endpoint}:`, err)
+            return { data: {} }
+          })
+        )
+      )
 
-      const responses = await Promise.all(requests)
+      setOverviewStats(responses[0]?.data || {})
+      setOpportunitiesStatusData(responses[1]?.data || { labels: [], data: [] })
+      setOffresAdjugeData(responses[2]?.data || { labels: [], data: [] })
+      setMonthlyTrendData(responses[3]?.data || { labels: [], data: [] })
+      setContractsStatusData(responses[4]?.data || { labels: [], data: [] })
+      setFacturesPaymentData(responses[5]?.data || { labels: [], data: [] })
+      setMonthlyRevenueData(responses[6]?.data || { labels: [], data: [] })
+      setTopClientsData(responses[7]?.data || { labels: [], data: [] })
+      setLivrablesValidationData(responses[8]?.data || { labels: [], data: [] })
+      setUsersRoleData(responses[9]?.data || { labels: [], data: [] })
+      setAdvancedAnalytics(responses[10]?.data || {})
 
-      let clientsData = []
-      let opportunitiesData = []
-      let offresData = []
-      let contratsData = []
-
-      let responseIndex = 0
-      if (authService.canViewClients()) {
-        clientsData = responses[responseIndex]?.data || []
-        responseIndex++
-      }
-      if (authService.canViewOpportunities()) {
-        opportunitiesData = responses[responseIndex]?.data || []
-        responseIndex++
-      }
-      if (authService.canViewOffers()) {
-        offresData = responses[responseIndex]?.data || []
-        responseIndex++
-      }
-      if (authService.canViewContracts()) {
-        contratsData = responses[responseIndex]?.data || []
-        responseIndex++
-      }
-
-      setTotalClients(clientsData.length)
-      setTotalOpportunities(opportunitiesData.length)
-      setTotalOffres(offresData.length)
-      setTotalContrats(contratsData.length)
     } catch (err) {
-      console.error("Error fetching dashboard data:", err)
-      setError("Erreur lors du chargement des données du tableau de bord: " + err.message)
+      console.error("Error fetching statistics:", err)
+      setError("Erreur lors du chargement des statistiques: " + err.message)
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    fetchDashboardData()
-  }, [fetchDashboardData])
+    fetchAllStatistics()
+  }, [fetchAllStatistics])
 
-  const handleSelect = (text) => {
-    setSelected(text)
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center" style={{ height: "400px" }}>
+        <div className="spinner-border text-primary" role="status">
+          <span className="visually-hidden">Chargement...</span>
+        </div>
+      </div>
+    )
   }
 
-  const data = {
-    labels: [
-      "Janvier",
-      "Février",
-      "Mars",
-      "Avril",
-      "Mai",
-      "Juin",
-      "Juillet",
-      "Août",
-      "Septembre",
-      "Octobre",
-      "Novembre",
-      "Décembre",
-    ],
-    datasets: [
-      {
-        label: "Clients",
-        data: [20, 35, 50, 40, 65, 75, 36, 50, 45, 60, 55, 70],
-        backgroundColor: "rgba(40, 193, 68, 0.32)",
-        borderColor: "rgba(75, 192, 192, 0.68)",
-        borderWidth: 0,
-      },
-      {
-        label: "Opportunités",
-        data: [50, 70, 90, 110, 130, 150, 120, 200, 180, 160, 140, 170],
-        backgroundColor: "rgba(9, 98, 241, 0.32)",
-        borderColor: "rgba(9, 98, 241, 0.68)",
-        borderWidth: 0,
-      },
-      {
-        label: "Offres",
-        data: [10, 15, 20, 18, 22, 25, 18, 30, 27, 24, 21, 26],
-        backgroundColor: "rgba(195, 35, 160, 0.32)",
-        borderColor: "rgba(195, 35, 160, 0.68)",
-        borderWidth: 0,
-      },
-      {
-        label: "Contrats",
-        data: [5, 8, 12, 10, 15, 18, 14, 20, 17, 16, 13, 19],
-        backgroundColor: "rgba(255, 193, 7, 0.32)",
-        borderColor: "rgba(255, 193, 7, 0.68)",
-        borderWidth: 0,
-      },
-    ],
+  if (error) {
+    return (
+      <div className="alert alert-danger">
+        {error}
+        <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+      </div>
+    )
   }
 
-  const options = {
-    responsive: true,
-    plugins: {
-      legend: {
-        position: "top",
-      },
-      tooltip: {
-        enabled: true,
-      },
-    },
-    scales: {
-      y: {
-        beginAtZero: true,
-      },
-    },
-  }
-
-  const getRoleDisplayName = (role) => {
-    switch (role) {
-      case "ADMIN":
-        return "Administrateur"
-      case "GESTION_CLIENTS_OPPORTUNITES":
-        return "Gestion Clients & Opportunités"
-      case "GESTION_OFFRES":
-        return "Gestion des Offres"
-      case "GESTION_CONTRATS":
-        return "Gestion des Contrats"
-      default:
-        return role
-    }
+  // Préparer les données pour le graphique en nuage de points (opportunités vs montant)
+  const scatterData = {
+    data: monthlyRevenueData.labels?.map((label, index) => ({
+      x: index + 1,
+      y: monthlyRevenueData.data?.[index] || 0
+    })) || [],
+    xLabel: "Mois",
+    yLabel: "Chiffre d'affaires (€)"
   }
 
   return (
-    <div className="d-flex flex-column p-3 pb-0 flex-grow-1">
-      {error && (
-        <div className="alert alert-danger w-100 mb-3">
-          {error}
-          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
+    <div className="container-fluid p-4">
+      {/* En-tête avec informations utilisateur */}
+      <div className="row mb-4">
+        <div className="col-12">
+          <div className="alert alert-info">
+            <h4>📊 Tableau de Bord Analytique - {user?.firstName} {user?.lastName}</h4>
+            <p className="mb-0">Analyse complète des données avec visualisations interactives</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Statistiques générales */}
+      <div className="row mb-4">
+        <div className="col-md-3 mb-3">
+          <div className="card border-primary">
+            <div className="card-body text-center">
+              <i className="fas fa-users fa-2x text-primary mb-2"></i>
+              <h3 className="text-primary">{overviewStats.totalClients || 0}</h3>
+              <p style={{ color: "black" }} className="card-text">Clients</p>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-3 mb-3">
+          <div className="card border-success">
+            <div className="card-body text-center">
+              <i className="fas fa-lightbulb fa-2x text-success mb-2"></i>
+              <h3 className="text-success">{overviewStats.totalOpportunites || 0}</h3>
+              <p style={{ color: "black" }} className="card-text">Opportunités</p>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-3 mb-3">
+          <div className="card border-warning">
+            <div className="card-body text-center">
+              <i className="fas fa-file-invoice fa-2x text-warning mb-2"></i>
+              <h3 className="text-warning">{overviewStats.totalOffres || 0}</h3>
+              <p style={{ color: "black" }} className="card-text">Offres</p>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-3 mb-3">
+          <div className="card border-info">
+            <div className="card-body text-center">
+              <i className="fas fa-file-contract fa-2x text-info mb-2"></i>
+              <h3 className="text-info">{overviewStats.totalContrats || 0}</h3>
+              <p style={{ color: "black" }} className="card-text">Contrats</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Métriques avancées */}
+      <div className="row mb-4">
+        <div className="col-md-3 mb-3">
+          <div className="card bg-primary text-white">
+            <div className="card-body text-center">
+              <h4>{advancedAnalytics.conversionRate || 0}%</h4>
+              <p>Taux de Conversion</p>
+              <small>Opportunités → Offres</small>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-3 mb-3">
+          <div className="card bg-success text-white">
+            <div className="card-body text-center">
+              <h4>{advancedAnalytics.successRate || 0}%</h4>
+              <p>Taux de Réussite</p>
+              <small>Offres Gagnées</small>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-3 mb-3">
+          <div className="card bg-info text-white">
+            <div className="card-body text-center">
+              <h4>{(advancedAnalytics.averageContractValue || 0).toLocaleString()}€</h4>
+              <p>Valeur Moyenne</p>
+              <small>Par Contrat</small>
+            </div>
+          </div>
+        </div>
+        <div className="col-md-3 mb-3">
+          <div className="card bg-warning text-white">
+            <div className="card-body text-center">
+              <h4>{(advancedAnalytics.totalRevenue || 0).toLocaleString()}€</h4>
+              <p>Chiffre d'Affaires</p>
+              <small>Total</small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation des onglets */}
+      <ul className="nav nav-tabs mb-4">
+        <li className="nav-item">
+          <button
+            className={`nav-link ${activeTab === 'overview' ? 'active' : ''}`}
+            onClick={() => setActiveTab('overview')}
+          >
+            📊 Vue d'ensemble
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            className={`nav-link ${activeTab === 'opportunities' ? 'active' : ''}`}
+            onClick={() => setActiveTab('opportunities')}
+          >
+            💡 Opportunités
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            className={`nav-link ${activeTab === 'offers' ? 'active' : ''}`}
+            onClick={() => setActiveTab('offers')}
+          >
+            📄 Offres & Contrats
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            className={`nav-link ${activeTab === 'finance' ? 'active' : ''}`}
+            onClick={() => setActiveTab('finance')}
+          >
+            💰 Finances
+          </button>
+        </li>
+        <li className="nav-item">
+          <button
+            className={`nav-link ${activeTab === 'clients' ? 'active' : ''}`}
+            onClick={() => setActiveTab('clients')}
+          >
+            👥 Analyse Clients
+          </button>
+        </li>
+      </ul>
+
+      {/* Contenu des onglets */}
+      {activeTab === 'overview' && (
+        <div className="row">
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>📈 Évolution Mensuelle des Opportunités</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <LineChart
+                  data={monthlyTrendData}
+                  title="Opportunités par Mois"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>🎯 État des Opportunités</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <PieChart
+                  data={opportunitiesStatusData}
+                  title="Répartition par État"
+                />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Welcome message */}
-      <div className="alert alert-info mb-3">
-        <h5>
-          Bienvenue, {user?.firstName} {user?.lastName}!
-        </h5>
-        <p className="mb-0">Rôle: {getRoleDisplayName(user?.role)}</p>
-        {user?.role === "ADMIN" && (
-          <small className="text-success">✅ Accès complet à toutes les fonctionnalités</small>
-        )}
-      </div>
-
-      {/* Statistics */}
-      <div
-        className="d-flex p-3 justify-content-between align-items-center mb-2"
-        style={{ width: "100%", backgroundColor: "white" }}
-      >
-        {loading ? (
-          <div className="text-center w-100 py-5">
-            <div className="spinner-border text-primary" role="status">
-              <span className="visually-hidden">Chargement...</span>
+      {activeTab === 'opportunities' && (
+        <div className="row">
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>📊 État des Opportunités</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <BarChart
+                  data={opportunitiesStatusData}
+                  title="Opportunités par État"
+                />
+              </div>
             </div>
           </div>
-        ) : (
-          <>
-            {/* Clients */}
-            <div
-              className="flex-rows rounded-3 shadow p-3 me-4"
-              style={{ width: "23%", height: "auto", backgroundColor: "white" }}
-            >
-              <div className="d-flex flex-row justify-content-between mb-3">
-                <div className="d-flex flex-column">
-                  <h5 className="mb-1" style={{ color: "#C9A13C", fontFamily: "corbel" }}>
-                    Total des Clients
-                  </h5>
-                  <h4 style={{ color: "black", fontFamily: "consolas", fontWeight: "bold" }}>{totalClients}</h4>
-                </div>
-                <div className="d-flex flex-row">
-                  <button className="p-4 pt-1 pb-1 btnn" type="button">
-                    <div id="container-stars">
-                      <div id="stars"></div>
-                    </div>
-                    <div id="glow">
-                      <div className="circle"></div>
-                      <div className="circle"></div>
-                    </div>
-                    <i className="fa-solid fa-user-tie" style={{ width: "20px", color: "white" }}></i>
-                  </button>
-                </div>
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>📈 Tendance Mensuelle</h5>
               </div>
-              <hr className="custom-hr" />
-              <div className="d-flex flex-row justify-content-center align-items-center">
-                <h6 className="me-2" style={{ color: "green", fontFamily: "segoe print", fontWeight: "bold" }}>
-                  +5
-                </h6>
-                <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouveaux clients</h6>
+              <div className="card-body" style={{ height: '400px' }}>
+                <AreaChart
+                  data={{
+                    labels: monthlyTrendData.labels,
+                    datasets: [{
+                      label: 'Opportunités',
+                      data: monthlyTrendData.data,
+                      backgroundColor: 'rgba(54, 162, 235, 0.3)',
+                      borderColor: 'rgba(54, 162, 235, 1)',
+                      fill: true
+                    }]
+                  }}
+                  title="Évolution des Opportunités"
+                />
               </div>
             </div>
-
-            {/* Opportunités */}
-            <div
-              className="flex-rows rounded-3 shadow p-3 me-4"
-              style={{ width: "23%", height: "auto", backgroundColor: "white" }}
-            >
-              <div className="d-flex flex-row justify-content-between mb-3">
-                <div className="d-flex flex-column">
-                  <h5 className="mb-1" style={{ color: "#C9A13C", fontFamily: "corbel" }}>
-                    Total des Opportunités
-                  </h5>
-                  <h4 style={{ color: "black", fontFamily: "consolas", fontWeight: "bold" }}>{totalOpportunities}</h4>
-                </div>
-                <div className="d-flex flex-row">
-                  <button className="p-4 pt-1 pb-1 btnn" type="button">
-                    <div id="container-stars">
-                      <div id="stars"></div>
-                    </div>
-                    <div id="glow">
-                      <div className="circle"></div>
-                      <div className="circle"></div>
-                    </div>
-                    <i className="fa-solid fa-lightbulb" style={{ width: "20px", color: "white" }}></i>
-                  </button>
-                </div>
-              </div>
-              <hr className="custom-hr" />
-              <div className="d-flex flex-row justify-content-center align-items-center">
-                <h6 className="me-2" style={{ color: "green", fontFamily: "segoe print", fontWeight: "bold" }}>
-                  +2
-                </h6>
-                <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouvelles opportunités</h6>
-              </div>
-            </div>
-
-            {/* Offres */}
-            <div
-              className="flex-rows rounded-3 shadow p-3 me-4"
-              style={{ width: "23%", height: "auto", backgroundColor: "white" }}
-            >
-              <div className="d-flex flex-row justify-content-between mb-3">
-                <div className="d-flex flex-column">
-                  <h5 className="mb-1" style={{ color: "#C9A13C", fontFamily: "corbel" }}>
-                    Total des Offres
-                  </h5>
-                  <h4 style={{ color: "black", fontFamily: "consolas", fontWeight: "bold" }}>{totalOffres}</h4>
-                </div>
-                <div className="d-flex flex-row">
-                  <button className="p-4 pt-1 pb-1 btnn" type="button">
-                    <div id="container-stars">
-                      <div id="stars"></div>
-                    </div>
-                    <div id="glow">
-                      <div className="circle"></div>
-                      <div className="circle"></div>
-                    </div>
-                    <i className="fa-solid fa-file-invoice" style={{ width: "20px", color: "white" }}></i>
-                  </button>
-                </div>
-              </div>
-              <hr className="custom-hr" />
-              <div className="d-flex flex-row justify-content-center align-items-center">
-                <h6 className="me-2" style={{ color: "green", fontFamily: "segoe print", fontWeight: "bold" }}>
-                  +30
-                </h6>
-                <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouvelles Offres</h6>
-              </div>
-            </div>
-
-            {/* Contrats */}
-            <div
-              className="flex-rows rounded-3 shadow p-3"
-              style={{ width: "23%", height: "auto", backgroundColor: "white" }}
-            >
-              <div className="d-flex flex-row justify-content-between mb-3">
-                <div className="d-flex flex-column">
-                  <h5 className="mb-1" style={{ color: "#C9A13C", fontFamily: "corbel" }}>
-                    Total des Contrats
-                  </h5>
-                  <h4 style={{ color: "black", fontFamily: "consolas", fontWeight: "bold" }}>{totalContrats}</h4>
-                </div>
-                <div className="d-flex flex-row">
-                  <button className="p-4 pt-1 pb-1 btnn" type="button">
-                    <div id="container-stars">
-                      <div id="stars"></div>
-                    </div>
-                    <div id="glow">
-                      <div className="circle"></div>
-                      <div className="circle"></div>
-                    </div>
-                    <i className="fa-solid fa-file-contract" style={{ width: "20px", color: "white" }}></i>
-                  </button>
-                </div>
-              </div>
-              <hr className="custom-hr" />
-              <div className="d-flex flex-row justify-content-center align-items-center">
-                <h6 className="me-2" style={{ color: "green", fontFamily: "segoe print", fontWeight: "bold" }}>
-                  +8
-                </h6>
-                <h6 style={{ color: "gray", fontFamily: "segoe print" }}>Nouveaux Contrats</h6>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Chart Section */}
-      <div
-        className="d-flex p-3 justify-content-center align-items-center justify-content-between mt-auto"
-        style={{ width: "100%", backgroundColor: "white" }}
-      >
-        <div
-          className="d-flex flex-column rounded-3 shadow-lg me-4 pb-0"
-          style={{ width: "60%", height: "auto", backgroundColor: "white" }}
-        >
-          <div
-            className="d-flex flex-row rounded-3 justify-content-between align-items-center p-3 pb-1 mb-2"
-            style={{ height: "70%", width: "100%", backgroundColor: "white" }}
-          >
-            <div className="dropdown p-1 rounded-3">
-              <button
-                className="btn btn-secondary dropdown-toggle"
-                data-bs-toggle="dropdown"
-                aria-expanded="true"
-                style={{ color: "black", backgroundColor: "white" }}
-              >
-                {selected || "Choisir une période"}
-              </button>
-              <ul className="dropdown-menu">
-                {data.labels.map((month, index) => (
-                  <li key={index}>
-                    <button
-                      className="dropdown-item"
-                      onClick={(e) => {
-                        e.preventDefault()
-                        handleSelect(month)
-                      }}
-                    >
-                      {month}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          <div className="rounded-3 p-4" style={{ height: "30%", width: "100%", backgroundColor: "white" }}>
-            <CustomChart data={data} options={options} />
           </div>
         </div>
+      )}
 
-        <div
-          className="d-flex flex-column rounded-3 shadow-lg p-4 align-items-center"
-          style={{ width: "40%", height: "100%", backgroundColor: "white" }}
-        >
-          <h6 className="mb-3" style={{ color: "#008080", fontFamily: "corbel", fontSize: "20px" }}>
-            Visualisez vos données avec la puissance de l'IA
-          </h6>
-          <hr className="custom-hr" style={{ width: "100%", height: "4px" }} />
-          <div
-            className="d-flex flex-column align-items-center justify-content-center h-100"
-            style={{ backgroundColor: "white" }}
+      {activeTab === 'offers' && (
+        <div className="row">
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>🏆 Statut des Offres</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <PieChart
+                  data={offresAdjugeData}
+                  title="Offres par Statut"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>📋 État des Contrats</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <BarChart
+                  data={contractsStatusData}
+                  title="Contrats par État"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="col-md-12 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>✅ Validation des Livrables</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <BarChart
+                  data={livrablesValidationData}
+                  title="Livrables par Statut de Validation"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'finance' && (
+        <div className="row">
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>💶 Évolution du Chiffre d'Affaires</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <LineChart
+                  data={monthlyRevenueData}
+                  title="Chiffre d'Affaires Mensuel (€)"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="col-md-6 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>💳 Statut des Paiements</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <PieChart
+                  data={facturesPaymentData}
+                  title="Factures par Statut de Paiement"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="col-md-12 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>📊 Analyse Revenus vs Temps</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <ScatterChart
+                  data={scatterData}
+                  title="Corrélation Temporelle des Revenus"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'clients' && (
+        <div className="row">
+          <div className="col-md-8 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>🏆 Top 10 Clients par Opportunités</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <BarChart
+                  data={topClientsData}
+                  title="Clients les Plus Actifs"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="col-md-4 mb-4">
+            <div className="card">
+              <div className="card-header">
+                <h5>👤 Répartition des Utilisateurs</h5>
+              </div>
+              <div className="card-body" style={{ height: '400px' }}>
+                <PieChart
+                  data={usersRoleData}
+                  title="Utilisateurs par Rôle"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Section d'aide à la décision */}
+      <div className="row mt-5">
+        <div className="col-12">
+          <div className="card border-success">
+            <div className="card-header bg-success text-white">
+              <h5><i className="fas fa-brain"></i> Aide à la Décision - Insights Analytiques</h5>
+            </div>
+            <div className="card-body">
+              <div className="row">
+                <div className="col-md-3">
+                  <div className="alert alert-info">
+                    <strong>Performance Commerciale</strong><br/>
+                    Taux de conversion: {advancedAnalytics.conversionRate || 0}%<br/>
+                    <small>
+                      {(advancedAnalytics.conversionRate || 0) > 50 ?
+                        "✅ Excellent taux de conversion" :
+                        "⚠️ Amélioration possible"}
+                    </small>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="alert alert-success">
+                    <strong>Efficacité des Offres</strong><br/>
+                    Taux de réussite: {advancedAnalytics.successRate || 0}%<br/>
+                    <small>
+                      {(advancedAnalytics.successRate || 0) > 30 ?
+                        "✅ Très bon taux de réussite" :
+                        "⚠️ Revoir la stratégie d'offres"}
+                    </small>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="alert alert-warning">
+                    <strong>Valeur Moyenne</strong><br/>
+                    {(advancedAnalytics.averageContractValue || 0).toLocaleString()}€ par contrat<br/>
+                    <small>
+                      {(advancedAnalytics.averageContractValue || 0) > 50000 ?
+                        "✅ Contrats de grande valeur" :
+                        "💡 Cibler des projets plus importants"}
+                    </small>
+                  </div>
+                </div>
+                <div className="col-md-3">
+                  <div className="alert alert-primary">
+                    <strong>Chiffre d'Affaires</strong><br/>
+                    {(advancedAnalytics.totalRevenue || 0).toLocaleString()}€ total<br/>
+                    <small>
+                      {(advancedAnalytics.totalRevenue || 0) > 1000000 ?
+                        "🎉 Objectif atteint !" :
+                        "📈 En progression"}
+                    </small>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bouton de rafraîchissement */}
+      <div className="row mt-3">
+        <div className="col-12 text-center">
+          <button
+            className="btn btn-primary btn-lg"
+            onClick={fetchAllStatistics}
+            disabled={loading}
           >
-            <img src="pp.png" alt="chatbot Icon" className="mt-2 mb-3" style={{ width: "100px", height: "auto" }} />
-            <h6 className="mb-2" style={{ textAlign: "center", fontFamily: "segoe print" }}>
-              Comment puis-je vous aider ?
-            </h6>
-            <img src="plots.png" alt="chatbot Icon" className="mt-2 mb-5" style={{ width: "200px", height: "auto" }} />
-          </div>
-          <div className="d-flex felx-row w-100 mt-auto">
-            <textarea
-              className="form-control pe-2"
-              rows="1"
-              placeholder="Tapez votre message ici..."
-              style={{ border: "1px solid #ccc", borderRadius: "10px", resize: "none" }}
-            ></textarea>
-            <button
-              className="btn justify-content-center align-items-center rounded-3 ms-2"
-              style={{ backgroundColor: "rgba(195, 179, 35, 0.21)" }}
-            >
-              <i className="fa-solid fa-arrow-up" style={{ width: "20px" }}></i>
-            </button>
-          </div>
+            <i className="fas fa-sync-alt"></i> {loading ? 'Actualisation...' : 'Actualiser les Données'}
+          </button>
         </div>
       </div>
     </div>
   )
 }
 
-export default Admin_Dashboard_Content
+export default Enhanced_Dashboard_Content

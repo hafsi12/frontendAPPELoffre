@@ -86,7 +86,6 @@ class AuthService {
     return user?.role || null
   }
 
-
   canAccessClients() {
     return this.hasAnyRole(["ADMIN", "GESTION_CLIENTS_OPPORTUNITES", "GESTION_OFFRES", "GESTION_CONTRATS"])
   }
@@ -103,7 +102,7 @@ class AuthService {
     return this.hasAnyRole(["ADMIN", "GESTION_CLIENTS_OPPORTUNITES", "GESTION_OFFRES", "GESTION_CONTRATS"])
   }
   canAccessWonOffers() {
-    return this.hasAnyRole(["ADMIN", "GESTION_OFFRES", "GESTION_CONTRATS"]);
+    return this.hasAnyRole(["ADMIN", "GESTION_OFFRES", "GESTION_CONTRATS"])
   }
 
   // Permissions de modification (pour différencier lecture/écriture)
@@ -372,7 +371,6 @@ class AuthService {
     }
   }
 }
-
 
 const authService = new AuthService()
 export default authService

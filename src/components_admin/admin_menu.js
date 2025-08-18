@@ -166,7 +166,7 @@ function Admin_Menu() {
               onMouseLeave={() => setHoveredButton(null)}
             >
               <i className="fas fa-bell me-3" style={{ width: "20px" }}></i>
-              Notifications
+              Facture
             </button>
           </li>
         </ul>
@@ -186,16 +186,7 @@ function Admin_Menu() {
 
         <hr className="border-dark" />
 
-        <button
-          className="p-3 pt-1 pb-1 btn btn-sm w-100 text-start d-flex align-items-center rounded-4"
-          style={getButtonStyle("chatbot")}
-          onClick={() => handleButtonClick("chatbot")}
-          onMouseEnter={() => setHoveredButton("chatbot")}
-          onMouseLeave={() => setHoveredButton(null)}
-        >
-          <i className="fa-solid fa-bolt me-3" style={{ width: "20px" }}></i>
-          Chat
-        </button>
+
 
         <Link
           to="/"

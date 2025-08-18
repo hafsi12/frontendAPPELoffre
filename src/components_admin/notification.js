@@ -1,451 +1,602 @@
-import React, { useState } from "react";
-import "bootstrap/dist/css/bootstrap.min.css"; // Assurez-vous que Bootstrap est importé
-import "bootstrap/dist/js/bootstrap.bundle.min.js";
-import "../styles/dashboard.css"; // Importer le fichier CSS
+"use client"
 
-function Notification() {
-  const [hoveredButton, setHoveredButton] = useState(null);
-  const [activeModalId, setActiveModalId] = useState(null);
-  const [destinataire, setDestinataire] = useState("");
-  const [objet, setObjet] = useState("");
-  const [notifications, setNotifications] = useState([
-    { id: 1, message: "Message 1", visible: true, isRead: false },
-    { id: 2, message: "Message 2", visible: true, isRead: false },
-    { id: 3, message: "Message 3", visible: true, isRead: false },
-  ]);
-  const [deleteId, setDeleteId] = useState(null);
+import { useState, useEffect } from "react"
+import "bootstrap/dist/css/bootstrap.min.css"
+import "bootstrap/dist/js/bootstrap.bundle.min.js"
+import api from "../services/api"
+import authService from "../services/authService"
 
-  const getButtonStyle = (buttonId) => ({
-    minWidth: "80px",
-    backgroundColor: hoveredButton === buttonId ? "#ECECEC" : "white",
-    fontFamily: "corbel",
-  });
+function Facture() {
+  const [factures, setFactures] = useState([])
+  const [contrats, setContrats] = useState([])
+  const [selectedFacture, setSelectedFacture] = useState(null)
+  const [selectedContrat, setSelectedContrat] = useState(null)
+  const [activeModalId, setActiveModalId] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [statistiques, setStatistiques] = useState(null)
 
-  const toggleModal = (modalId) => {
-    setActiveModalId(activeModalId === modalId ? null : modalId);
-  };
+  const canModify = authService.canModifyContracts() || authService.isAdmin()
+  const canView = authService.canViewContracts() || authService.isAuthenticated()
 
-  const handleReplyClick = (name, message) => {
-    setDestinataire(name);
-    setObjet(message);
-  };
+  const STATUT_VALIDATION = {
+    EN_ATTENTE: "En attente",
+    VALIDE: "Validé",
+    REFUSE: "Refusé",
+  }
 
-  const handleMarkAsRead = (id) => {
-    setNotifications((prevNotifications) =>
-      prevNotifications.map((notification) =>
-        notification.id === id
-          ? { ...notification, isRead: true }
-          : notification
-      )
-    );
-  };
+  const STATUT_PAIEMENT = {
+    NON_PAYE: "Non payé",
+    PAYE: "Payé",
+    SOLDE: "Soldé",
+  }
 
-  const handleDelete = () => {
-    setNotifications((prevNotifications) =>
-      prevNotifications.map((notification) =>
-        notification.id === deleteId
-          ? { ...notification, visible: false }
-          : notification
-      )
-    );
-    toggleModal("modal1"); // Fermer le modal
-    setDeleteId(null); // Réinitialiser l'ID à supprimer
-  };
+  useEffect(() => {
+    if (canView) {
+      fetchContrats()
+      fetchFactures()
+      fetchStatistiques()
+    }
+  }, [canView])
+
+  const fetchContrats = async () => {
+    try {
+      const response = await api.get("/contrats")
+      setContrats(response.data)
+    } catch (error) {
+      console.error("Error fetching contrats:", error)
+      setError("Erreur lors du chargement des contrats")
+    }
+  }
+
+  const fetchFactures = async () => {
+    try {
+      setLoading(true)
+      const response = await api.get("/factures")
+      setFactures(response.data)
+    } catch (error) {
+      console.error("Error fetching factures:", error)
+      setError("Erreur lors du chargement des factures")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchStatistiques = async () => {
+    try {
+      const response = await api.get("/factures/statistiques")
+      setStatistiques(response.data)
+    } catch (error) {
+      console.error("Error fetching statistiques:", error)
+    }
+  }
+
+  const generateFacture = async (contratId) => {
+    if (!canModify) return
+
+    try {
+      const contrat = contrats.find((c) => c.id === contratId)
+      if (!contrat || !contrat.livrables || contrat.livrables.length === 0) {
+        setError("Le contrat doit avoir des livrables pour générer une facture")
+        return
+      }
+
+      const response = await api.post(`/factures/contrat/${contratId}`)
+      await fetchFactures()
+      await fetchStatistiques()
+      setActiveModalId(null)
+    } catch (error) {
+      console.error("Error generating facture:", error)
+      setError("Erreur lors de la génération de la facture")
+    }
+  }
+
+  const regenererFacture = async (contratId) => {
+    if (!canModify) return
+
+    try {
+      await api.post(`/factures/regenerer/${contratId}`)
+      await fetchFactures()
+      await fetchStatistiques()
+      setError(null)
+    } catch (error) {
+      console.error("Error regenerating facture:", error)
+      setError("Erreur lors de la régénération de la facture")
+    }
+  }
+
+  const genererTicketPDF = async (factureId) => {
+    try {
+      const response = await api.get(`/factures/${factureId}/ticket/pdf`, {
+        responseType: "blob",
+      })
+
+      // Créer un lien de téléchargement
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement("a")
+      link.href = url
+      link.setAttribute("download", `ticket-facture-${selectedFacture.numeroFacture}.txt`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("Error generating ticket PDF:", error)
+      setError("Erreur lors de la génération du ticket PDF")
+    }
+  }
+
+  const deleteFacture = async (factureId) => {
+    if (!canModify) return
+
+    if (window.confirm("Êtes-vous sûr de vouloir supprimer cette facture ?")) {
+      try {
+        await api.delete(`/factures/${factureId}`)
+        await fetchFactures()
+        await fetchStatistiques()
+        setSelectedFacture(null)
+      } catch (error) {
+        console.error("Error deleting facture:", error)
+        setError("Erreur lors de la suppression de la facture")
+      }
+    }
+  }
+
+  const updateLivrableStatus = async (livrableId, statutType, newStatus) => {
+    if (!canModify) return
+
+    try {
+      const updateData = {}
+      updateData[statutType] = newStatus
+
+      await api.put(`/livrables/${livrableId}`, updateData)
+
+      await fetchContrats()
+      await fetchFactures()
+      await fetchStatistiques()
+    } catch (error) {
+      console.error("Error updating livrable status:", error)
+      setError("Erreur lors de la mise à jour du statut")
+    }
+  }
+
+  const handleDetailsClick = async (facture) => {
+    try {
+      const response = await api.get(`/factures/${facture.id}/details`)
+      setSelectedFacture(response.data.facture)
+      setActiveModalId(null)
+    } catch (error) {
+      console.error("Error fetching facture details:", error)
+      setSelectedFacture(facture)
+    }
+  }
+
+  const handleGenerateClick = (contrat) => {
+    setSelectedContrat(contrat)
+    setActiveModalId("generateModal")
+  }
+
+  const handleBackClick = () => {
+    setSelectedFacture(null)
+  }
+
+  const getStatusBadgeClass = (status, type) => {
+    if (type === "paiement") {
+      switch (status) {
+        case "PAYE":
+          return "bg-success"
+        case "SOLDE":
+          return "bg-info"
+        case "NON_PAYE":
+          return "bg-danger"
+        default:
+          return "bg-secondary"
+      }
+    } else {
+      switch (status) {
+        case "VALIDE":
+          return "bg-success"
+        case "REFUSE":
+          return "bg-danger"
+        case "EN_ATTENTE":
+          return "bg-warning"
+        default:
+          return "bg-secondary"
+      }
+    }
+  }
+
+  const renderStatistiques = () => {
+    if (!statistiques) return null
+
+    return (
+      <div className="shadow-lg rounded-3 w-100 border p-3 mb-4">
+        <h5 className="mb-3">
+          <i className="fas fa-chart-bar me-2"></i>
+          Statistiques des Factures
+        </h5>
+        <div className="row">
+          <div className="col-md-3">
+            <div className="card bg-primary text-white">
+              <div className="card-body text-center">
+                <h4>{statistiques.totalFactures}</h4>
+                <p className="mb-0">Total Factures</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="card bg-success text-white">
+              <div className="card-body text-center">
+                <h4>{statistiques.facturesPayees}</h4>
+                <p className="mb-0">Factures Payées</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="card bg-warning text-white">
+              <div className="card-body text-center">
+                <h4>{statistiques.facturesNonPayees}</h4>
+                <p className="mb-0">Non Payées</p>
+              </div>
+            </div>
+          </div>
+          <div className="col-md-3">
+            <div className="card bg-info text-white">
+              <div className="card-body text-center">
+                <h4>{statistiques.montantTotal?.toFixed(2)} MAD</h4>
+                <p className="mb-0">Montant Total</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!canView) {
+    return (
+      <div className="container mt-5">
+        <div className="alert alert-danger text-center">
+          <h4>Accès refusé</h4>
+          <p>Vous n'avez pas les permissions nécessaires pour voir les factures.</p>
+          <small className="text-muted">Rôle actuel: {authService.getRoleDisplayName()}</small>
+        </div>
+      </div>
+    )
+  }
+
+  if (selectedFacture && !activeModalId) {
+    return (
+      <div className="p-4">
+        <button className="btn btn-secondary mb-3" onClick={() => setSelectedFacture(null)}>
+          ← Retour à la liste
+        </button>
+
+        <div className="card shadow-lg">
+          <div className="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h3 className="mb-0">
+              <i className="fas fa-file-invoice me-2"></i>
+              Facture {selectedFacture.numeroFacture}
+            </h3>
+            {canModify && (
+              <div className="btn-group">
+                {selectedFacture.statutFacture === "PAYE" && (
+                  <button
+                    className="btn btn-success btn-sm me-2"
+                    onClick={() => genererTicketPDF(selectedFacture.id)}
+                    title="Générer ticket PDF"
+                  >
+                    <i className="fas fa-receipt me-1"></i>
+                    Ticket PDF
+                  </button>
+                )}
+                <button
+                  className="btn btn-warning btn-sm"
+                  onClick={() => regenererFacture(selectedFacture.contrat?.id)}
+                  title="Régénérer la facture"
+                >
+                  <i className="fas fa-sync me-1"></i>
+                  Régénérer
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={() => deleteFacture(selectedFacture.id)}
+                  title="Supprimer la facture"
+                >
+                  <i className="fas fa-trash me-1"></i>
+                  Supprimer
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="card-body">
+            <div className="row mb-4">
+              <div className="col-md-6">
+                <h5 style={{ color: "black" }}>Informations Facture</h5>
+                <p>
+                  <strong style={{ color: "black" }}>Numéro:</strong> <span style={{ color: "green" }}>{selectedFacture.numeroFacture}</span>
+                </p>
+                <p>
+                  <strong style={{ color: "black" }}>Date:</strong> <span style={{ color: "green" }}>
+                                                                        {new Date(selectedFacture.dateFacture).toLocaleDateString()}
+                                                                      </span>
+                </p>
+                <p>
+                  <strong style={{ color: "black" }}>Client:</strong> <span style={{ color: "green" }}>
+                                                                          {selectedFacture.contrat?.nameClient || "N/A"}
+                                                                        </span>
+                </p>
+                <p>
+                  <strong style={{ color: "black" }}>Statut:</strong>{" "}
+                  <span
+                    className={`badge ms-2 ${getStatusBadgeClass(
+                      selectedFacture.statutFacture,
+                      "paiement"
+                    )}`}
+                  >
+                    {STATUT_PAIEMENT[selectedFacture.statutFacture] ||
+                      selectedFacture.statutFacture}
+                  </span>
+                </p>
+              </div>
+              <div className="col-md-6 text-end">
+                <h4 className="text-primary">
+                  Montant Total: {selectedFacture.montantTotal?.toFixed(2) || "0.00"} MAD
+                </h4>
+              </div>
+            </div>
+
+            <h5  style={{ color: "blue" }} >Détail des Livrables</h5>
+            <div className="table-responsive">
+              <table className="table table-striped">
+                <thead>
+                  <tr>
+                    <th>Livrable</th>
+                    <th>Description</th>
+                    <th>Date Livraison</th>
+                    <th>Montant</th>
+                    <th>Statut Validation</th>
+                    <th>Statut Paiement</th>
+                    {canModify && <th>Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedFacture.contrat?.livrables?.map((livrable) => (
+                    <tr key={livrable.id}>
+                      <td>{livrable.titre}</td>
+                      <td>{livrable.description}</td>
+                      <td>{livrable.dateLivraison ? new Date(livrable.dateLivraison).toLocaleDateString() : "N/A"}</td>
+                      <td>{Number.parseFloat(livrable.montant || 0).toFixed(2)} MAD</td>
+                      <td>
+                        <span className={`badge ${getStatusBadgeClass(livrable.statutValidation, "validation")}`}>
+                          {STATUT_VALIDATION[livrable.statutValidation] || livrable.statutValidation}
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge ${getStatusBadgeClass(livrable.statutPaiement, "paiement")}`}>
+                          {STATUT_PAIEMENT[livrable.statutPaiement] || livrable.statutPaiement}
+                        </span>
+                      </td>
+                      {canModify && (
+                        <td>
+                          <div className="btn-group btn-group-sm">
+                            <button
+                              className="btn btn-outline-success btn-sm"
+                              onClick={() => updateLivrableStatus(livrable.id, "statutValidation", "VALIDE")}
+                              disabled={livrable.statutValidation === "VALIDE"}
+                              title="Valider"
+                            >
+                              ✓
+                            </button>
+                            <button
+                              className="btn btn-outline-danger btn-sm"
+                              onClick={() => updateLivrableStatus(livrable.id, "statutValidation", "REFUSE")}
+                              disabled={livrable.statutValidation === "REFUSE"}
+                              title="Refuser"
+                            >
+                              ✗
+                            </button>
+                            <button
+                              className="btn btn-outline-primary btn-sm"
+                              onClick={() => updateLivrableStatus(livrable.id, "statutPaiement", "PAYE")}
+                              disabled={livrable.statutPaiement === "PAYE"}
+                              title="Marquer comme payé"
+                            >
+                              💰
+                            </button>
+                            <button
+                              className="btn btn-outline-info btn-sm"
+                              onClick={() => updateLivrableStatus(livrable.id, "statutPaiement", "SOLDE")}
+                              disabled={livrable.statutPaiement === "SOLDE"}
+                              title="Marquer comme soldé"
+                            >
+                              ✅
+                            </button>
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr
+                    style={{
+                      backgroundColor: "#ffffff", // blanc
+                      color: "#000000" // texte noir
+                    }}
+                  >
+                    <td colSpan="3">
+                      <strong style={{ color: "black" }} >Total</strong>
+                    </td>
+                    <td>
+                      <strong style={{ color: "green" }}>{selectedFacture.montantTotal?.toFixed(2) || "0.00"} MAD</strong>
+                    </td>
+                    <td colSpan={canModify ? "3" : "2"}></td>
+                  </tr>
+                </tfoot>
+
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div
-      className="d-flex flex-row p-3 align-items-start"
-      style={{ backgroundColor: "white" }}
-    >
-      {/* Nouveau Message */}
-      <div
-        className="d-flex flex-column p-3 justify-content-center align-items-center me-5"
-        style={{ backgroundColor: "white", width: "45%" }}
-      >
-        {/* Header */}
-        <div
-          className="rounded-3 p-3 d-flex shadow-lg justify-content-between"
-          style={{
-            background:
-              "linear-gradient(to right,rgba(4, 4, 4, 0.77),rgba(4, 4, 4, 0.77), rgba(45, 79, 39, 0.77), rgba(96, 54, 39, 0.77))",
-            width: "85%",
-            marginBottom: "-40px",
-            zIndex: 1,
-          }}
-        >
-          <h4 style={{ color: "white", fontFamily: "corbel" }}>
-            Nouvelle Annonce
-          </h4>
-          <button
-            className="d-flex p-3 pt-0 pb-0 btn btn-sm rounded-4 justify-content-center align-items-center me-2"
-            style={{ backgroundColor: "white" }}
-          >
-            <i
-              className="fa-solid fa-share me-3"
-              style={{ color: "#008080" }}
-            ></i>
-            Envoyer
-          </button>
+    <div className="d-flex flex-column p-3 align-items-center" style={{ backgroundColor: "white" }}>
+      {error && (
+        <div className="alert alert-danger w-100 mb-3">
+          {error}
+          <button type="button" className="btn-close" onClick={() => setError(null)}></button>
         </div>
+      )}
 
-        {/* Contenu */}
-        <div
-          className=" d-flex flex-column p-3 w-100 rounded-3  shadow mb-4 "
-          style={{ backgroundColor: "white" }}
-        >
-          <div className="d-flex flex-column w-100 mb-4 pt-3">
-            {/* Destinataire */}
-            <div className="d-flex rounded-3 shadow p-3 mb-4 mt-5">
-              <textarea
-                style={{
-                  backgroundColor: "white",
-                  fontFamily: "corbel",
-                  fontSize: "17px",
-                }}
-                placeholder="Destinataire"
-                rows="1"
-                value={destinataire}
-                onChange={(e) => setDestinataire(e.target.value)}
-              ></textarea>
-            </div>
-
-            {/* Objet */}
-            <div className="d-flex rounded-3 shadow p-3 mb-4">
-              <textarea
-                style={{
-                  backgroundColor: "white",
-                  fontFamily: "corbel",
-                  fontSize: "17px",
-                }}
-                placeholder="Objet ..."
-                rows="1"
-                value={objet}
-                onChange={(e) => setObjet(e.target.value)}
-              ></textarea>
-            </div>
-
-            {/* Message */}
-            <div className="d-flex rounded-3 shadow p-3">
-              <textarea
-                style={{
-                  backgroundColor: "white",
-                  fontFamily: "corbel",
-                  fontSize: "17px",
-                }}
-                placeholder="Ecrivez un nouveau message ..."
-                rows="4"
-              ></textarea>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* Notifications */}
       <div
-        className="d-flex flex-column me-auto pt-3"
+        className="rounded-3 p-3 shadow-lg d-flex justify-content-between w-100 mb-3"
         style={{
-          backgroundColor: "white",
-          width: "50%",
-          maxHeight: "84vh",
-          overflowY: "auto",
+          background: "linear-gradient(to right,rgba(4,4,4,0.77),rgba(45,79,39,0.77),rgba(96,54,39,0.77))",
+          zIndex: 1,
         }}
       >
-        <h5 style={{ fontFamily: "dubai", color: "gray" }}>1-10-2025</h5>
-
-        {/* Notifications */}
-        {notifications.map(
-          (notification) =>
-            notification.visible && (
-              <div
-                key={notification.id}
-                className="mb-3 d-flex flex-row me-auto pt-3 w-100"
-                style={{ backgroundColor: "white" }}
-              >
-                <div
-                  className="d-flex flex-column w-100"
-                  style={{ backgroundColor: "white" }}
-                >
-                  {/* Icone */}
-                  <div
-                    className="d-flex justify-content-center align-items-center border rounded-circle p-3"
-                    style={{ width: "25px", height: "25px" }}
-                  >
-                    <i
-                      className="fa-solid fa-circle"
-                      style={{ fontSize: "13px", color: "rgb(109, 163, 44)" }}
-                    ></i>
-                  </div>
-
-                  <div className="d-flex flex-column w-100 p-3">
-                    {/* Ligne de temps */}
-                    <div
-                      className="d-flex flex-row pt-3 pb-3 pe-3 p-4 w-100"
-                      style={{
-                        backgroundColor: "white",
-                        borderLeft: "5px solid rgba(197, 203, 198, 0.53)",
-                      }}
-                    >
-                      {/* Message */}
-                      <div
-                        className="d-flex flex-column rounded-4 justify-content-between shadow p-3 w-100 div-with-border"
-                        style={{ backgroundColor: "white" }}
-                      >
-                        <div
-                          className="d-flex flex-row mb-2 justify-content-between"
-                          style={{ backgroundColor: "white" }}
-                        >
-                          <div
-                            className="d-flex flex-column mb-2"
-                            style={{ backgroundColor: "white" }}
-                          >
-                            <h6
-                              style={{
-                                color: notification.isRead
-                                  ? "black"
-                                  : "rgba(205, 48, 116, 0.85)",
-                              }}
-                            >
-                              GHERABI Noreddine
-                            </h6>
-                            <span
-                              className="mb-3"
-                              style={{
-                                color: notification.isRead
-                                  ? "black"
-                                  : "rgba(205, 48, 116, 0.85)",
-                              }}
-                            >
-                              Notes POO-JEE
-                            </span>
-                          </div>
-                          <div className="d-flex">
-                            <p style={{ fontFamily: "calibri", color: "gray" }}>
-                              7:45 PM
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Boutons */}
-                        <div
-                          className="mb-2 rounded-4 p-2 d-flex flex-row justify-content-center align-items-center shadow"
-                          style={{ backgroundColor: "white" }}
-                        >
-                          {/* Répondre */}
-                          <button
-                            className="btn btn-sm rounded-4 mb-2"
-                            style={getButtonStyle("reply")}
-                            onMouseEnter={() => setHoveredButton("reply")}
-                            onMouseLeave={() => setHoveredButton(null)}
-                            onClick={() =>
-                              handleReplyClick(
-                                "GHERABI Noreddine",
-                                "Notes POO-JEE"
-                              )
-                            }
-                          >
-                            <i
-                              className="fa-solid fa-reply"
-                              style={{ color: "rgba(111, 164, 98, 0.56)" }}
-                            ></i>
-                          </button>
-
-                          {/* Marquer comme lu */}
-                          <button
-                            className="btn btn-sm rounded-4 mb-2"
-                            style={getButtonStyle("mark")}
-                            onMouseEnter={() => setHoveredButton("mark")}
-                            onMouseLeave={() => setHoveredButton(null)}
-                            onClick={() => handleMarkAsRead(notification.id)}
-                          >
-                            <i
-                              className="fa-duotone fa-solid fa-check"
-                              style={{
-                                width: "20px",
-                                color: "rgb(104, 122, 112,0.56)",
-                              }}
-                            ></i>
-                          </button>
-
-                          {/* Modifier */}
-                          <button
-                            className="btn btn-sm rounded-4 mb-2"
-                            style={getButtonStyle("mod")}
-                            onMouseEnter={() => setHoveredButton("mod")}
-                            onMouseLeave={() => setHoveredButton(null)}
-                            onClick={() => toggleModal("modal2")}
-                          >
-                            <i
-                              className="fa-solid fa-envelope-open"
-                              style={{
-                                width: "20px",
-                                color: "rgb(38, 160, 187,0.56)",
-                              }}
-                            ></i>
-                          </button>
-
-                          {/* Supprimer */}
-                          <button
-                            className="btn btn-sm rounded-4 mb-2"
-                            style={getButtonStyle("delete")}
-                            onMouseEnter={() => setHoveredButton("delete")}
-                            onMouseLeave={() => setHoveredButton(null)}
-                            onClick={() => {
-                              setActiveModalId("modal1");
-                              setDeleteId(notification.id);
-                            }}
-                          >
-                            <i
-                              className="fa-solid fa-trash"
-                              style={{
-                                width: "20px",
-                                color: "rgb(187, 43, 38,0.56)",
-                              }}
-                            ></i>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )
-        )}
-
-        {/* Modals */}
-        {activeModalId === "modal2" && (
-          <div
-            className="modal show"
-            style={{
-              display: "block",
-              backgroundColor: "rgba(0,0,0,0.5)",
-              zIndex: 3,
-            }}
-          >
-            <div className="modal-dialog modal-dialog-centered">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h4
-                    className="modal-title"
-                    style={{ fontFamily: "corbel", color: "#C9A13C" }}
-                  >
-                    Notes POO-JEE
-                  </h4>
-                </div>
-                <div className="modal-body d-flex flex-row align-items-center justify-content-center">
-                  <div className="p-1 pt-3 w-100 justify-content-center align-items-center">
-                    <table className="table table-bordered">
-                      <thead>
-                        <tr>
-                          <th
-                            style={{
-                              fontFamily: "corbel",
-                              color: "rgb(127, 121, 107)",
-                            }}
-                          >
-                            NOM
-                          </th>
-                          <th
-                            style={{
-                              fontFamily: "corbel",
-                              color: "rgb(127, 121, 107)",
-                            }}
-                          >
-                            PRENOM
-                          </th>
-                          <th
-                            style={{
-                              fontFamily: "corbel",
-                              color: "rgb(127, 121, 107)",
-                            }}
-                          >
-                            NOTE
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td>EL HARKAOUI</td>
-                          <td>Chaymae</td>
-                          <td>20</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => toggleModal("modal2")}
-                  >
-                    Fermer
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => toggleModal("modal2")}
-                  >
-                    Valider
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => toggleModal("modal2")}
-                  >
-                    Exporter en PDF
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeModalId === "modal1" && (
-          <div
-            className="modal show"
-            style={{
-              display: "block",
-              backgroundColor: "rgba(0,0,0,0.5)",
-              zIndex: 5,
-            }}
-          >
-            <div className="modal-dialog modal-dialog-centered">
-              <div className="modal-content">
-                <div className="modal-header">
-                  <h4
-                    className="modal-title"
-                    style={{ fontFamily: "corbel", color: "red" }}
-                  >
-                    Suppression du message
-                  </h4>
-                </div>
-                <div className="modal-body">
-                  <p>Êtes-vous sûr de vouloir supprimer ce message ?</p>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => toggleModal("modal1")}
-                  >
-                    Retour
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={handleDelete}
-                  >
-                    Oui
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        <h4 className="text-white" style={{ fontFamily: "corbel" }}>
+          Gestion des Factures
+        </h4>
       </div>
+
+      {loading ? (
+        <div className="text-center py-5">
+          <div className="spinner-border text-primary" role="status">
+            <span className="visually-hidden">Chargement...</span>
+          </div>
+        </div>
+      ) : (
+        <>
+          {renderStatistiques()}
+
+          <div className="shadow-lg rounded-3 w-100 border p-3 mb-4">
+            <h5 className="mb-3">
+              <i className="fas fa-file-contract me-2"></i>
+              Contrats sans facture
+            </h5>
+            <table className="table table-striped">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Client</th>
+                  <th>Détails</th>
+                  <th>Nb Livrables</th>
+                  <th>Montant Total</th>
+                  <th>Statut Estimé</th>
+                  {canModify && <th className="text-center">Actions</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {contrats
+                  .filter((contrat) => !factures.some((f) => f.contrat?.id === contrat.id))
+                  .map((contrat) => {
+                    const montantTotal =
+                      contrat.livrables?.reduce((sum, l) => sum + (Number.parseFloat(l.montant) || 0), 0) || 0
+                    const allPaidOrSolde = contrat.livrables?.every(
+                      (l) => l.statutPaiement === "PAYE" || l.statutPaiement === "SOLDE",
+                    )
+                    const statutEstime = allPaidOrSolde ? "PAYE" : "NON_PAYE"
+
+                    return (
+                      <tr key={contrat.id}>
+                        <td>{contrat.id}</td>
+                        <td>{contrat.nameClient}</td>
+                        <td>{contrat.details}</td>
+                        <td>{contrat.livrables?.length || 0}</td>
+                        <td>{montantTotal.toFixed(2)} MAD</td>
+                        <td>
+                          <span className={`badge ${getStatusBadgeClass(statutEstime, "paiement")}`}>
+                            {STATUT_PAIEMENT[statutEstime]}
+                          </span>
+                        </td>
+                        {canModify && (
+                          <td className="text-center">
+                            <button
+                              className="btn btn-sm btn-primary"
+                              onClick={() => generateFacture(contrat.id)}
+                              disabled={!contrat.livrables || contrat.livrables.length === 0}
+                            >
+                              <i className="fas fa-plus me-1"></i>
+                              Générer
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    )
+                  })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="shadow-lg rounded-3 w-100 border p-3">
+            <h5 className="mb-3">
+              <i className="fas fa-file-invoice me-2"></i>
+              Factures Générées
+            </h5>
+            <table className="table table-striped">
+              <thead>
+                <tr>
+                  <th>Numéro</th>
+                  <th>Date</th>
+                  <th>Client</th>
+                  <th>Montant Total</th>
+                  <th>Statut</th>
+                  <th className="text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {factures.map((facture) => (
+                  <tr key={facture.id}>
+                    <td>{facture.numeroFacture}</td>
+                    <td>{new Date(facture.dateFacture).toLocaleDateString()}</td>
+                    <td>{facture.contrat?.nameClient || "N/A"}</td>
+                    <td>{facture.montantTotal?.toFixed(2) || "0.00"} MAD</td>
+                    <td>
+                      <span className={`badge ${getStatusBadgeClass(facture.statutFacture, "paiement")}`}>
+                        {STATUT_PAIEMENT[facture.statutFacture] || facture.statutFacture}
+                      </span>
+                    </td>
+                    <td className="text-center">
+                      <div className="btn-group btn-group-sm">
+                        <button className="btn btn-info" onClick={() => handleDetailsClick(facture)}>
+                          <i className="fas fa-eye me-1"></i>
+                          Détails
+                        </button>
+                        {canModify && (
+                          <>
+                            <button
+                              className="btn btn-warning"
+                              onClick={() => regenererFacture(facture.contrat?.id)}
+                              title="Régénérer"
+                            >
+                              <i className="fas fa-sync"></i>
+                            </button>
+                            <button
+                              className="btn btn-danger"
+                              onClick={() => deleteFacture(facture.id)}
+                              title="Supprimer"
+                            >
+                              <i className="fas fa-trash"></i>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
     </div>
-  );
+  )
 }
 
-export default Notification;
+export default Facture
