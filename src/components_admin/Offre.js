@@ -13,6 +13,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
   const [offres, setOffres] = useState([])
   const [selectedOffre, setSelectedOffre] = useState(null)
   const [opportunitiesList, setOpportunitiesList] = useState([])
+  const [activeFolder, setActiveFolder] = useState("TECHNIQUE")
   const [offreFormData, setOffreFormData] = useState({
     budget: "",
     detail: "",
@@ -28,6 +29,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
     deadline: "",
     assignedPerson: "",
     checked: false,
+    typeDossier: "TECHNIQUE",
   })
   const [newDocument, setNewDocument] = useState({
     namefile: "",
@@ -35,10 +37,31 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
     type: "PDF",
     cheminFichier: "",
     file: null,
+    typeDossier: "TECHNIQUE",
   })
 
   const canModify = authService.canModifyOffers()
   const canView = authService.canViewOffers()
+
+  const getDocumentsByFolder = (typeDossier) => {
+    return offreFormData.documents.filter((doc) => doc.typeDossier === typeDossier)
+  }
+
+  const getTasksByFolder = (typeDossier) => {
+    return offreFormData.taches.filter((task) => task.typeDossier === typeDossier)
+  }
+
+  const getFolderStats = (typeDossier) => {
+    const documents = getDocumentsByFolder(typeDossier)
+    const tasks = getTasksByFolder(typeDossier)
+    const completedTasks = tasks.filter((t) => t.checked).length
+    return {
+      documents: documents.length,
+      tasks: tasks.length,
+      completedTasks,
+      progress: tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0,
+    }
+  }
 
   const fetchOffres = useCallback(async () => {
     setLoading(true)
@@ -89,6 +112,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       deadline: "",
       assignedPerson: "",
       checked: false,
+      typeDossier: "TECHNIQUE",
     })
     setNewDocument({
       namefile: "",
@@ -96,6 +120,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       type: "PDF",
       cheminFichier: "",
       file: null,
+      typeDossier: "TECHNIQUE",
     })
   }, [initialOpportunity])
 
@@ -138,7 +163,14 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
         ...prev,
         taches: [...prev.taches, { ...newTask, id: Date.now() }],
       }))
-      setNewTask({ titre: "", detail: "", deadline: "", assignedPerson: "", checked: false })
+      setNewTask({
+        titre: "",
+        detail: "",
+        deadline: "",
+        assignedPerson: "",
+        checked: false,
+        typeDossier: newTask.typeDossier,
+      })
     } else {
       setError("Veuillez remplir tous les champs de la tâche avant de l'ajouter.")
     }
@@ -163,7 +195,14 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
           },
         ],
       }))
-      setNewDocument({ namefile: "", description: "", type: "PDF", cheminFichier: "", file: null })
+      setNewDocument({
+        namefile: "",
+        description: "",
+        type: "PDF",
+        cheminFichier: "",
+        file: null,
+        typeDossier: newDocument.typeDossier,
+      })
     } else {
       setError("Veuillez remplir tous les champs du document et sélectionner un fichier avant de l'ajouter.")
     }
@@ -209,13 +248,23 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
     if (!canModify) return
     setError(null)
     setLoading(true)
+
     try {
+      console.log("[v0] Starting offre submission...")
+
+      const isServerUp = await api.checkServerConnection()
+      if (!isServerUp) {
+        throw new Error("Le serveur backend n'est pas accessible. Vérifiez qu'il est démarré sur localhost:8080")
+      }
+
       const offreToSend = {
         ...offreFormData,
         budget: Number.parseFloat(offreFormData.budget),
         documents: offreFormData.documents.map((doc) => ({
           ...doc,
           id: doc.file ? null : doc.id,
+          // Remove file object from JSON data
+          file: undefined,
         })),
         taches: offreFormData.taches.map((tache) => ({
           ...tache,
@@ -223,22 +272,49 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
         })),
       }
 
+      console.log("[v0] Offre data prepared:", offreToSend)
+
       const formData = new FormData()
       formData.append("offre", JSON.stringify(offreToSend))
-      offreFormData.documents.forEach((doc) => {
-        if (doc.file) {
+
+      // Add files if any
+      const filesWithData = offreFormData.documents.filter((doc) => doc.file)
+      console.log("[v0] Files to upload:", filesWithData.length)
+      if (filesWithData.length > 0) {
+        filesWithData.forEach((doc, index) => {
+          console.log(`[v0] Adding file ${index}:`, {
+            name: doc.file.name,
+            size: doc.file.size,
+            type: doc.file.type,
+            cheminFichier: doc.cheminFichier,
+          })
           formData.append("files", doc.file, doc.cheminFichier)
+        })
+      }
+
+      console.log("[v0] FormData entries:")
+      for (const [key, value] of formData.entries()) {
+        if (value instanceof File) {
+          console.log(`[v0] ${key}:`, {
+            name: value.name,
+            size: value.size,
+            type: value.type,
+          })
+        } else {
+          console.log(`[v0] ${key}:`, typeof value === "string" ? value.substring(0, 200) + "..." : value)
         }
-      })
+      }
 
       let response
       if (selectedOffre) {
+        console.log("[v0] Updating existing offre:", selectedOffre.idOffre)
         response = await api.put(`/offres/${selectedOffre.idOffre}`, formData, {
           headers: {
             "Content-Type": "multipart/form-data",
           },
         })
       } else {
+        console.log("[v0] Creating new offre")
         response = await api.post("/offres", formData, {
           headers: {
             "Content-Type": "multipart/form-data",
@@ -246,7 +322,11 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
         })
       }
 
-      const resultOffre = response.data
+      console.log("[v0] API call successful:", response)
+
+      // Files are already uploaded with the main request
+
+      const resultOffre = response.data || response
       if (selectedOffre) {
         setOffres((prev) => prev.map((o) => (o.idOffre === resultOffre.idOffre ? resultOffre : o)))
         setSelectedOffre(resultOffre)
@@ -257,9 +337,27 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       }
       resetOffreForm()
       setShowSummaryModal(false)
+
+      console.log("[v0] Offre submission completed successfully")
     } catch (err) {
-      console.error("Error submitting offre:", err)
-      setError("Erreur lors de la soumission de l'offre: " + err.message)
+      console.error("[v0] Error submitting offre:", err)
+      let errorMessage = "Erreur lors de la soumission de l'offre"
+
+      if (err.message.includes("serveur")) {
+        errorMessage = err.message
+      } else if (err.message.includes("Network")) {
+        errorMessage = "Erreur de connexion réseau. Vérifiez votre connexion internet et que le serveur est accessible."
+      } else if (err.response?.status === 415) {
+        errorMessage = "Format de données non supporté. Vérifiez la configuration du serveur."
+      } else if (err.message.includes("HTTP 400")) {
+        errorMessage = "Données invalides. Vérifiez les informations saisies."
+      } else if (err.message.includes("HTTP 500")) {
+        errorMessage = "Erreur serveur. Contactez l'administrateur."
+      } else {
+        errorMessage += ": " + err.message
+      }
+
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -317,7 +415,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       taches: offre.taches.map((tache) => ({ ...tache })),
     })
     setCurrentView("create")
-
   }
   useEffect(() => {
     if (selectedOffre?.opportunite) {
@@ -327,7 +424,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
       }
     }
   }, [selectedOffre, opportunitiesList])
-
 
   const getStatusBadge = (status) => {
     switch (status) {
@@ -360,6 +456,19 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
   const totalFileSize = offreFormData.documents.reduce((acc, doc) => acc + (doc.file?.size || 0), 0)
   const fileSizeInMB = (totalFileSize / (1024 * 1024)).toFixed(2)
 
+  const getFolderInfo = (typeDossier) => {
+    switch (typeDossier) {
+      case "TECHNIQUE":
+        return { icon: "fas fa-cogs", color: "#007bff", name: "Technique" }
+      case "ADMINISTRATIF":
+        return { icon: "fas fa-file-contract", color: "#28a745", name: "Administratif" }
+      case "FINANCIER":
+        return { icon: "fas fa-chart-line", color: "#ffc107", name: "Financier" }
+      default:
+        return { icon: "fas fa-folder", color: "#6c757d", name: "Autre" }
+    }
+  }
+
   if (!canView) {
     return (
       <div className="container mt-5">
@@ -372,6 +481,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
   }
 
   if (currentView === "list") {
+    // ... existing code for list view ...
     return (
       <div className="d-flex flex-column p-3 align-items-center" style={{ backgroundColor: "white" }}>
         {error && (
@@ -405,8 +515,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
             </button>
           )}
         </div>
-
-
 
         <div className="row g-3 mb-4 w-100" style={{ maxWidth: "1200px" }}>
           <div className="col-md-3">
@@ -577,8 +685,8 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
               <i className="fa-solid fa-pen me-2"></i>Modifier l'Offre
             </button>
           )}
-
         </div>
+
         <div className="row row-cols-1 row-cols-md-2 g-4 mb-4">
           <div className="col">
             <div className="card h-100 shadow-sm">
@@ -619,324 +727,426 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
           </div>
         </div>
 
-        {/* Section Tâches */}
-        <div className="shadow-lg rounded-3 border p-4 mb-4">
-          <div className="d-flex align-items-center mb-3">
-            <div
-              className="rounded-circle d-flex align-items-center justify-content-center me-3"
-              style={{ width: "40px", height: "40px", backgroundColor: "#007bff" }}
-            >
-              <i className="fas fa-tasks text-white"></i>
-            </div>
-            <h5 className="mb-0" style={{ color: "#007bff", fontFamily: "corbel" }}>
-              Tâches de l'Offre ({selectedOffre.taches?.length || 0})
-            </h5>
+        <div className="card shadow-lg mb-4">
+          <div className="card-header bg-light">
+            <ul className="nav nav-tabs card-header-tabs" role="tablist">
+              {["TECHNIQUE", "ADMINISTRATIF", "FINANCIER"].map((folder) => {
+                const folderInfo = getFolderInfo(folder)
+                const stats = getFolderStats(folder)
+                return (
+                  <li className="nav-item" key={folder}>
+                    <button
+                      className={`nav-link ${activeFolder === folder ? "active" : ""}`}
+                      onClick={() => setActiveFolder(folder)}
+                      style={{ color: folderInfo.color }}
+                    >
+                      <i className={`${folderInfo.icon} me-2`}></i>
+                      {folderInfo.name}
+                      <span className="badge bg-secondary ms-2">{stats.documents + stats.tasks}</span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
           </div>
+          <div className="card-body">
+            {["TECHNIQUE", "ADMINISTRATIF", "FINANCIER"].map((folder) => {
+              if (activeFolder !== folder) return null
 
-          {canModify && (
-            <div className="bg-light p-3 rounded mb-3">
-              <h6 className="text-primary mb-3">
-                <i className="fas fa-plus-circle me-2"></i>
-                Ajouter une nouvelle tâche
-              </h6>
-              <div className="mb-2">
-                <input
-                  type="text"
-                  className="form-control mb-2"
-                  placeholder="Titre de la tâche"
-                  name="titre"
-                  value={newTask.titre}
-                  onChange={handleTaskInputChange}
-                />
-              </div>
-              <div className="mb-2">
-                <input
-                  type="text"
-                  className="form-control mb-2"
-                  placeholder="Détails de la tâche"
-                  name="detail"
-                  value={newTask.detail}
-                  onChange={handleTaskInputChange}
-                />
-              </div>
-              <div className="row g-2 mb-2">
-                <div className="col-6">
-                  <input
-                    type="date"
-                    className="form-control"
-                    name="deadline"
-                    value={newTask.deadline}
-                    onChange={handleTaskInputChange}
-                  />
-                </div>
-                <div className="col-6">
-                  <input
-                    type="text"
-                    className="form-control"
-                    placeholder="Assignée à"
-                    name="assignedPerson"
-                    value={newTask.assignedPerson}
-                    onChange={handleTaskInputChange}
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                className="btn btn-primary w-100"
-                onClick={async () => {
-                  if (
-                    newTask.titre &&
-                    newTask.detail &&
-                    newTask.deadline &&
-                    newTask.assignedPerson &&
-                    selectedOffre.idOffre
-                  ) {
-                    setError(null)
-                    setLoading(true)
-                    try {
-                      const response = await api.post(`/offres/${selectedOffre.idOffre}/taches`, newTask)
-                      const addedTask = response.data
-                      setSelectedOffre((prev) =>
-                        prev ? { ...prev, taches: [...(prev.taches || []), addedTask] } : null,
-                      )
-                      setNewTask({ titre: "", detail: "", deadline: "", assignedPerson: "", checked: false })
-                    } catch (err) {
-                      console.error("Error adding task:", err)
-                      setError("Erreur lors de l'ajout de la tâche: " + err.message)
-                    } finally {
-                      setLoading(false)
-                    }
-                  } else {
-                    setError("Veuillez remplir tous les champs de la tâche avant de l'ajouter.")
-                  }
-                }}
-              >
-                <i className="fas fa-plus me-2"></i>
-                Ajouter Tâche
-              </button>
-            </div>
-          )}
+              const folderInfo = getFolderInfo(folder)
+              const stats = getFolderStats(folder)
+              const folderTasks = getTasksByFolder(folder)
+              const folderDocuments = getDocumentsByFolder(folder)
 
-          {selectedOffre.taches?.length > 0 ? (
-            <div style={{ maxHeight: "300px", overflowY: "auto" }}>
-              {selectedOffre.taches.map((t) => (
-                <div key={t.id} className="card mb-2 border-primary">
-                  <div className="card-body p-3">
-                    <div className="d-flex justify-content-between align-items-start">
-                      <div className="flex-grow-1">
-                        <h6 className="card-title text-primary mb-1">{t.titre}</h6>
-                        <p className="card-text text-muted small mb-1">{t.detail}</p>
-                        <div className="d-flex justify-content-between">
-                          <small className="text-success">
-                            <i className="fas fa-user me-1"></i>
-                            {t.assignedPerson}
-                          </small>
-                          <small className="text-warning">
-                            <i className="fas fa-calendar me-1"></i>
-                            {new Date(t.deadline).toLocaleDateString()}
-                          </small>
+              return (
+                <div key={folder}>
+                  <div className="row mb-4">
+                    <div className="col-md-6">
+                      <div className="card border-0" style={{ backgroundColor: "#f8f9fa" }}>
+                        <div className="card-body text-center">
+                          <i className={`${folderInfo.icon} fa-2x mb-2`} style={{ color: folderInfo.color }}></i>
+                          <h5 style={{ color: folderInfo.color }}>Dossier {folderInfo.name}</h5>
+                          <div className="row">
+                            <div className="col-4">
+                              <strong>{stats.documents}</strong>
+                              <br />
+                              <small className="text-muted">Documents</small>
+                            </div>
+                            <div className="col-4">
+                              <strong>{stats.tasks}</strong>
+                              <br />
+                              <small className="text-muted">Tâches</small>
+                            </div>
+                            <div className="col-4">
+                              <strong>{stats.progress}%</strong>
+                              <br />
+                              <small className="text-muted">Progression</small>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      {canModify && (
-                        <button
-                          className="btn btn-sm btn-outline-danger ms-2"
-                          onClick={async () => {
-                            if (selectedOffre.idOffre && t.id) {
-                              setError(null)
-                              setLoading(true)
-                              try {
-                                await api.delete(`/offres/${selectedOffre.idOffre}/taches/${t.id}`)
-                                setSelectedOffre((prev) =>
-                                  prev ? { ...prev, taches: prev.taches?.filter((task) => task.id !== t.id) } : null,
-                                )
-                              } catch (err) {
-                                console.error("Error deleting task:", err)
-                                setError("Erreur lors de la suppression de la tâche: " + err.message)
-                              } finally {
-                                setLoading(false)
-                              }
-                            }
-                          }}
-                          title="Supprimer"
-                        >
-                          <i className="fas fa-times"></i>
-                        </button>
-                      )}
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted">Aucune tâche pour cette offre.</p>
-          )}
-        </div>
 
-        {/* Section Documents */}
-        <div className="shadow-lg rounded-3 border p-4 mb-4">
-          <div className="d-flex align-items-center mb-3">
-            <div
-              className="rounded-circle d-flex align-items-center justify-content-center me-3"
-              style={{ width: "40px", height: "40px", backgroundColor: "#ffc107" }}
-            >
-              <i className="fas fa-file text-white"></i>
-            </div>
-            <h5 className="mb-0" style={{ color: "#ffc107", fontFamily: "corbel" }}>
-              Documents de l'Offre ({selectedOffre.documents?.length || 0})
-            </h5>
-          </div>
-
-          {canModify && (
-            <div className="bg-light p-3 rounded mb-3">
-              <h6 className="text-warning mb-3">
-                <i className="fas fa-cloud-upload-alt me-2"></i>
-                Ajouter un nouveau document
-              </h6>
-              <div className="mb-2">
-                <input
-                  type="text"
-                  className="form-control mb-2"
-                  placeholder="Nom du fichier"
-                  name="namefile"
-                  value={newDocument.namefile}
-                  onChange={handleDocumentInputChange}
-                />
-              </div>
-              <div className="mb-2">
-                <input
-                  type="text"
-                  className="form-control mb-2"
-                  placeholder="Description du document"
-                  name="description"
-                  value={newDocument.description}
-                  onChange={handleDocumentInputChange}
-                />
-              </div>
-              <div className="mb-2">
-                <select
-                  className="form-control mb-2"
-                  name="type"
-                  value={newDocument.type}
-                  onChange={handleDocumentInputChange}
-                >
-                  <option value="PDF">PDF</option>
-                  <option value="DOCX">DOCX</option>
-                  <option value="XLSX">XLSX</option>
-                  <option value="PPT">PPT</option>
-                </select>
-              </div>
-              <div className="mb-2">
-                <input type="file" className="form-control mb-2" name="file" onChange={handleDocumentInputChange} />
-              </div>
-              {newDocument.cheminFichier && (
-                <p className="text-muted small mt-1">Fichier sélectionné: {newDocument.cheminFichier}</p>
-              )}
-              <button
-                type="button"
-                className="btn btn-warning w-100"
-                onClick={async () => {
-                  if (newDocument.namefile && newDocument.file && selectedOffre.idOffre) {
-                    setError(null)
-                    setLoading(true)
-                    try {
-                      const docToSend = {
-                        namefile: newDocument.namefile,
-                        description: newDocument.description,
-                        type: newDocument.type,
-                        cheminFichier: newDocument.cheminFichier,
-                      }
-                      const formData = new FormData()
-                      formData.append("document", JSON.stringify(docToSend))
-                      formData.append("file", newDocument.file, newDocument.cheminFichier)
-
-                      const response = await api.post(`/offres/${selectedOffre.idOffre}/documents`, formData, {
-                        headers: {
-                          "Content-Type": "multipart/form-data",
-                        },
-                      })
-                      const addedDocument = response.data
-                      setSelectedOffre((prev) =>
-                        prev ? { ...prev, documents: [...(prev.documents || []), addedDocument] } : null,
-                      )
-                      setNewDocument({ namefile: "", description: "", type: "PDF", cheminFichier: "", file: null })
-                    } catch (err) {
-                      console.error("Error adding document:", err)
-                      setError("Erreur lors de l'ajout du document: " + err.message)
-                    } finally {
-                      setLoading(false)
-                    }
-                  } else {
-                    setError(
-                      "Veuillez remplir tous les champs du document et sélectionner un fichier avant de l'ajouter.",
-                    )
-                  }
-                }}
-              >
-                <i className="fas fa-upload me-2"></i>
-                Ajouter Document
-              </button>
-            </div>
-          )}
-
-          {selectedOffre.documents?.length > 0 ? (
-            <div style={{ maxHeight: "300px", overflowY: "auto" }}>
-              {selectedOffre.documents.map((f) => (
-                <div key={f.id} className="card mb-2 border-warning">
-                  <div className="card-body p-3">
-                    <div className="d-flex justify-content-between align-items-start">
-                      <div className="flex-grow-1">
-                        <h6 className="card-title text-warning mb-1">
-                          <i className="fas fa-file-alt me-2"></i>
-                          {f.namefile}
-                        </h6>
-                        <p className="card-text text-muted small mb-1">{f.description}</p>
-                        <small className="badge bg-secondary">{f.type || "Document"}</small>
-                        {f.cheminFichier && !f.file && (
-                          <a
-                            href={`http://localhost:8080/api/offres/documents/${f.cheminFichier}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="ms-2 text-info"
-                          >
-                            Télécharger
-                          </a>
-                        )}
+                  {/* Section Tâches pour ce dossier */}
+                  <div className="shadow-sm rounded-3 border p-4 mb-4">
+                    <div className="d-flex align-items-center mb-3">
+                      <div
+                        className="rounded-circle d-flex align-items-center justify-content-center me-3"
+                        style={{ width: "40px", height: "40px", backgroundColor: folderInfo.color }}
+                      >
+                        <i className="fas fa-tasks text-white"></i>
                       </div>
-                      {canModify && (
+                      <h5 className="mb-0" style={{ color: folderInfo.color, fontFamily: "corbel" }}>
+                        Tâches {folderInfo.name} ({folderTasks.length})
+                      </h5>
+                    </div>
+
+                    {canModify && (
+                      <div className="bg-light p-3 rounded mb-3">
+                        <h6 className="mb-3" style={{ color: folderInfo.color }}>
+                          <i className="fas fa-plus-circle me-2"></i>
+                          Ajouter une nouvelle tâche {folderInfo.name.toLowerCase()}
+                        </h6>
+                        <div className="mb-2">
+                          <input
+                            type="text"
+                            className="form-control mb-2"
+                            placeholder="Titre de la tâche"
+                            name="titre"
+                            value={newTask.titre}
+                            onChange={handleTaskInputChange}
+                          />
+                        </div>
+                        <div className="mb-2">
+                          <input
+                            type="text"
+                            className="form-control mb-2"
+                            placeholder="Détails de la tâche"
+                            name="detail"
+                            value={newTask.detail}
+                            onChange={handleTaskInputChange}
+                          />
+                        </div>
+                        <div className="row g-2 mb-2">
+                          <div className="col-6">
+                            <input
+                              type="date"
+                              className="form-control"
+                              name="deadline"
+                              value={newTask.deadline}
+                              onChange={handleTaskInputChange}
+                            />
+                          </div>
+                          <div className="col-6">
+                            <input
+                              type="text"
+                              className="form-control"
+                              placeholder="Assignée à"
+                              name="assignedPerson"
+                              value={newTask.assignedPerson}
+                              onChange={handleTaskInputChange}
+                            />
+                          </div>
+                        </div>
+                        <input type="hidden" name="typeDossier" value={folder} />
                         <button
-                          className="btn btn-sm btn-outline-danger ms-2"
+                          type="button"
+                          className="btn w-100"
+                          style={{ backgroundColor: folderInfo.color, color: "white" }}
                           onClick={async () => {
-                            if (selectedOffre.idOffre && f.id) {
+                            if (
+                              newTask.titre &&
+                              newTask.detail &&
+                              newTask.deadline &&
+                              newTask.assignedPerson &&
+                              selectedOffre.idOffre
+                            ) {
                               setError(null)
                               setLoading(true)
                               try {
-                                await api.delete(`/offres/${selectedOffre.idOffre}/documents/${f.id}`)
-                                setSelectedOffre((prev) =>
-                                  prev
-                                    ? { ...prev, documents: prev.documents?.filter((doc) => doc.id !== f.id) }
-                                    : null,
+                                const taskWithFolder = { ...newTask, typeDossier: folder }
+                                const response = await api.post(
+                                  `/offres/${selectedOffre.idOffre}/taches`,
+                                  taskWithFolder,
                                 )
+                                const addedTask = response.data
+                                setSelectedOffre((prev) =>
+                                  prev ? { ...prev, taches: [...(prev.taches || []), addedTask] } : null,
+                                )
+                                setNewTask({
+                                  titre: "",
+                                  detail: "",
+                                  deadline: "",
+                                  assignedPerson: "",
+                                  checked: false,
+                                  typeDossier: folder,
+                                })
                               } catch (err) {
-                                console.error("Error deleting document:", err)
-                                setError("Erreur lors de la suppression du document: " + err.message)
+                                console.error("Error adding task:", err)
+                                setError("Erreur lors de l'ajout de la tâche: " + err.message)
                               } finally {
                                 setLoading(false)
                               }
+                            } else {
+                              setError("Veuillez remplir tous les champs de la tâche avant de l'ajouter.")
                             }
                           }}
-                          title="Supprimer"
                         >
-                          <i className="fas fa-times"></i>
+                          <i className="fas fa-plus me-2"></i>
+                          Ajouter Tâche {folderInfo.name}
                         </button>
-                      )}
+                      </div>
+                    )}
+
+                    {folderTasks.length > 0 ? (
+                      <div style={{ maxHeight: "300px", overflowY: "auto" }}>
+                        {folderTasks.map((t) => (
+                          <div key={t.id} className="card mb-2" style={{ borderColor: folderInfo.color }}>
+                            <div className="card-body p-3">
+                              <div className="d-flex justify-content-between align-items-start">
+                                <div className="flex-grow-1">
+                                  <h6 className="card-title mb-1" style={{ color: folderInfo.color }}>
+                                    {t.titre}
+                                  </h6>
+                                  <p className="card-text text-muted small mb-1">{t.detail}</p>
+                                  <div className="d-flex justify-content-between">
+                                    <small className="text-success">
+                                      <i className="fas fa-user me-1"></i>
+                                      {t.assignedPerson}
+                                    </small>
+                                    <small className="text-warning">
+                                      <i className="fas fa-calendar me-1"></i>
+                                      {new Date(t.deadline).toLocaleDateString()}
+                                    </small>
+                                  </div>
+                                </div>
+                                {canModify && (
+                                  <button
+                                    className="btn btn-sm btn-outline-danger ms-2"
+                                    onClick={async () => {
+                                      if (selectedOffre.idOffre && t.id) {
+                                        setError(null)
+                                        setLoading(true)
+                                        try {
+                                          await api.delete(`/offres/${selectedOffre.idOffre}/taches/${t.id}`)
+                                          setSelectedOffre((prev) =>
+                                            prev
+                                              ? { ...prev, taches: prev.taches?.filter((task) => task.id !== t.id) }
+                                              : null,
+                                          )
+                                        } catch (err) {
+                                          console.error("Error deleting task:", err)
+                                          setError("Erreur lors de la suppression de la tâche: " + err.message)
+                                        } finally {
+                                          setLoading(false)
+                                        }
+                                      }
+                                    }}
+                                    title="Supprimer"
+                                  >
+                                    <i className="fas fa-times"></i>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted">Aucune tâche pour ce dossier {folderInfo.name.toLowerCase()}.</p>
+                    )}
+                  </div>
+
+                  {/* Section Documents pour ce dossier */}
+                  <div className="shadow-sm rounded-3 border p-4 mb-4">
+                    <div className="d-flex align-items-center mb-3">
+                      <div
+                        className="rounded-circle d-flex align-items-center justify-content-center me-3"
+                        style={{ width: "40px", height: "40px", backgroundColor: folderInfo.color }}
+                      >
+                        <i className="fas fa-file text-white"></i>
+                      </div>
+                      <h5 className="mb-0" style={{ color: folderInfo.color, fontFamily: "corbel" }}>
+                        Documents {folderInfo.name} ({folderDocuments.length})
+                      </h5>
                     </div>
+
+                    {canModify && (
+                      <div className="bg-light p-3 rounded mb-3">
+                        <h6 className="mb-3" style={{ color: folderInfo.color }}>
+                          <i className="fas fa-cloud-upload-alt me-2"></i>
+                          Ajouter un nouveau document {folderInfo.name.toLowerCase()}
+                        </h6>
+                        <div className="mb-2">
+                          <input
+                            type="text"
+                            className="form-control mb-2"
+                            placeholder="Nom du fichier"
+                            name="namefile"
+                            value={newDocument.namefile}
+                            onChange={handleDocumentInputChange}
+                          />
+                        </div>
+                        <div className="mb-2">
+                          <input
+                            type="text"
+                            className="form-control mb-2"
+                            placeholder="Description du document"
+                            name="description"
+                            value={newDocument.description}
+                            onChange={handleDocumentInputChange}
+                          />
+                        </div>
+                        <div className="mb-2">
+                          <select
+                            className="form-control mb-2"
+                            name="type"
+                            value={newDocument.type}
+                            onChange={handleDocumentInputChange}
+                          >
+                            <option value="PDF">PDF</option>
+                            <option value="DOCX">DOCX</option>
+                            <option value="XLSX">XLSX</option>
+                            <option value="PPT">PPT</option>
+                          </select>
+                        </div>
+                        <div className="mb-2">
+                          <input
+                            type="file"
+                            className="form-control mb-2"
+                            name="file"
+                            onChange={handleDocumentInputChange}
+                          />
+                        </div>
+                        {newDocument.cheminFichier && (
+                          <p className="text-muted small mt-1">Fichier sélectionné: {newDocument.cheminFichier}</p>
+                        )}
+                        <input type="hidden" name="typeDossier" value={folder} />
+                        <button
+                          type="button"
+                          className="btn w-100"
+                          style={{ backgroundColor: folderInfo.color, color: "white" }}
+                          onClick={async () => {
+                            if (newDocument.namefile && newDocument.file && selectedOffre.idOffre) {
+                              setError(null)
+                              setLoading(true)
+                              try {
+                                const docToSend = {
+                                  namefile: newDocument.namefile,
+                                  description: newDocument.description,
+                                  type: newDocument.type,
+                                  cheminFichier: newDocument.cheminFichier,
+                                  typeDossier: folder,
+                                }
+                                const formData = new FormData()
+                                formData.append("document", JSON.stringify(docToSend))
+                                formData.append("file", newDocument.file, newDocument.cheminFichier)
+
+                                const response = await api.post(
+                                  `/offres/${selectedOffre.idOffre}/documents`,
+                                  formData,
+                                  {
+                                    headers: {
+                                      "Content-Type": "multipart/form-data",
+                                    },
+                                  },
+                                )
+                                const addedDocument = response.data
+                                setSelectedOffre((prev) =>
+                                  prev ? { ...prev, documents: [...(prev.documents || []), addedDocument] } : null,
+                                )
+                                setNewDocument({
+                                  namefile: "",
+                                  description: "",
+                                  type: "PDF",
+                                  cheminFichier: "",
+                                  file: null,
+                                  typeDossier: folder,
+                                })
+                              } catch (err) {
+                                console.error("Error adding document:", err)
+                                setError("Erreur lors de l'ajout du document: " + err.message)
+                              } finally {
+                                setLoading(false)
+                              }
+                            } else {
+                              setError(
+                                "Veuillez remplir tous les champs du document et sélectionner un fichier avant de l'ajouter.",
+                              )
+                            }
+                          }}
+                        >
+                          <i className="fas fa-upload me-2"></i>
+                          Ajouter Document {folderInfo.name}
+                        </button>
+                      </div>
+                    )}
+
+                    {folderDocuments.length > 0 ? (
+                      <div style={{ maxHeight: "300px", overflowY: "auto" }}>
+                        {folderDocuments.map((f) => (
+                          <div key={f.id} className="card mb-2" style={{ borderColor: folderInfo.color }}>
+                            <div className="card-body p-3">
+                              <div className="d-flex justify-content-between align-items-start">
+                                <div className="flex-grow-1">
+                                  <h6 className="card-title mb-1" style={{ color: folderInfo.color }}>
+                                    <i className="fas fa-file-alt me-2"></i>
+                                    {f.namefile}
+                                  </h6>
+                                  <p className="card-text text-muted small mb-1">{f.description}</p>
+                                  <small className="badge bg-secondary">{f.type || "Document"}</small>
+                                  {f.cheminFichier && !f.file && (
+                                    <a
+                                      href={`http://localhost:8080/api/offres/documents/${f.cheminFichier}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="ms-2 text-info"
+                                    >
+                                      Télécharger
+                                    </a>
+                                  )}
+                                </div>
+                                {canModify && (
+                                  <button
+                                    className="btn btn-sm btn-outline-danger ms-2"
+                                    onClick={async () => {
+                                      if (selectedOffre.idOffre && f.id) {
+                                        setError(null)
+                                        setLoading(true)
+                                        try {
+                                          await api.delete(`/offres/${selectedOffre.idOffre}/documents/${f.id}`)
+                                          setSelectedOffre((prev) =>
+                                            prev
+                                              ? { ...prev, documents: prev.documents?.filter((doc) => doc.id !== f.id) }
+                                              : null,
+                                          )
+                                        } catch (err) {
+                                          console.error("Error deleting document:", err)
+                                          setError("Erreur lors de la suppression du document: " + err.message)
+                                        } finally {
+                                          setLoading(false)
+                                        }
+                                      }
+                                    }}
+                                    title="Supprimer"
+                                  >
+                                    <i className="fas fa-times"></i>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-muted">Aucun document pour ce dossier {folderInfo.name.toLowerCase()}.</p>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-muted">Aucun document pour cette offre.</p>
-          )}
+              )
+            })}
+          </div>
         </div>
       </div>
     )
@@ -991,10 +1201,10 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
               <i className="fas fa-calculator text-white"></i>
             </div>
             <h5 className="mb-0" style={{ color: "#6c757d", fontFamily: "corbel" }}>
-              Tableau de Bord & Statistiques
+              Tableau de Bord & Statistiques par Dossier
             </h5>
           </div>
-          <div className="row g-3">
+          <div className="row g-3 mb-3">
             <div className="col-md-3">
               <div className="card text-center border-success h-100">
                 <div className="card-body">
@@ -1040,6 +1250,40 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
               </div>
             </div>
           </div>
+
+          <div className="row g-3">
+            {["TECHNIQUE", "ADMINISTRATIF", "FINANCIER"].map((folder) => {
+              const folderInfo = getFolderInfo(folder)
+              const stats = getFolderStats(folder)
+              return (
+                <div className="col-md-4" key={folder}>
+                  <div className="card h-100" style={{ borderColor: folderInfo.color }}>
+                    <div className="card-body text-center">
+                      <i className={`${folderInfo.icon} fa-2x mb-2`} style={{ color: folderInfo.color }}></i>
+                      <h6 style={{ color: folderInfo.color }}>{folderInfo.name}</h6>
+                      <div className="row">
+                        <div className="col-4">
+                          <strong>{stats.documents}</strong>
+                          <br />
+                          <small className="text-muted">Docs</small>
+                        </div>
+                        <div className="col-4">
+                          <strong>{stats.tasks}</strong>
+                          <br />
+                          <small className="text-muted">Tâches</small>
+                        </div>
+                        <div className="col-4">
+                          <strong>{stats.progress}%</strong>
+                          <br />
+                          <small className="text-muted">Prog.</small>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
 
         {canModify ? (
@@ -1051,6 +1295,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
               }
             }}
           >
+            {/* ... existing budget configuration section ... */}
             <div className="shadow-lg rounded-3 border p-4 mb-4">
               <div className="d-flex align-items-center mb-3">
                 <div
@@ -1126,221 +1371,285 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
                 )}
               </div>
             </div>
-            <div className="row g-4">
-              <div className="col-lg-6">
-                <div className="shadow-lg rounded-3 border p-4 h-100">
-                  <div className="d-flex align-items-center mb-3">
-                    <div
-                      className="rounded-circle d-flex align-items-center justify-content-center me-3"
-                      style={{ width: "40px", height: "40px", backgroundColor: "#007bff" }}
-                    >
-                      <i className="fas fa-tasks text-white"></i>
-                    </div>
-                    <h5 className="mb-0" style={{ color: "#007bff", fontFamily: "corbel" }}>
-                      Gestion des Tâches
-                    </h5>
-                  </div>
-                  <div className="bg-light p-3 rounded mb-3">
-                    <h6 className="text-primary mb-3">
-                      <i className="fas fa-plus-circle me-2"></i>
-                      Ajouter une tâche
-                    </h6>
-                    <div className="mb-2">
-                      <input
-                        type="text"
-                        className="form-control mb-2"
-                        placeholder="Titre de la tâche"
-                        name="titre"
-                        value={newTask.titre}
-                        onChange={handleTaskInputChange}
-                      />
-                    </div>
-                    <div className="mb-2">
-                      <input
-                        type="text"
-                        className="form-control mb-2"
-                        placeholder="Détails de la tâche"
-                        name="detail"
-                        value={newTask.detail}
-                        onChange={handleTaskInputChange}
-                      />
-                    </div>
-                    <div className="row g-2 mb-2">
-                      <div className="col-6">
-                        <input
-                          type="date"
-                          className="form-control"
-                          name="deadline"
-                          value={newTask.deadline}
-                          onChange={handleTaskInputChange}
-                        />
-                      </div>
-                      <div className="col-6">
-                        <input
-                          type="text"
-                          className="form-control"
-                          placeholder="Assignée à"
-                          name="assignedPerson"
-                          value={newTask.assignedPerson}
-                          onChange={handleTaskInputChange}
-                        />
-                      </div>
-                    </div>
-                    <button type="button" className="btn btn-primary w-100" onClick={handleAddTache}>
-                      <i className="fas fa-plus me-2"></i>
-                      Ajouter Tâche
-                    </button>
-                  </div>
-                  {offreFormData.taches.length > 0 && (
-                    <div style={{ maxHeight: "400px", overflowY: "auto" }}>
-                      <h6 className="text-success mb-3">
-                        <i className="fas fa-list me-2"></i>
-                        Tâches ({offreFormData.taches.length})
-                      </h6>
-                      {offreFormData.taches.map((t) => (
-                        <div key={t.id} className="card mb-2 border-primary">
-                          <div className="card-body p-3">
-                            <div className="d-flex justify-content-between align-items-start">
-                              <div className="flex-grow-1">
-                                <h6 className="card-title text-primary mb-1">{t.titre}</h6>
-                                <p className="card-text text-muted small mb-1">{t.detail}</p>
-                                <div className="d-flex justify-content-between">
-                                  <small className="text-success">
-                                    <i className="fas fa-user me-1"></i>
-                                    {t.assignedPerson}
-                                  </small>
-                                  <small className="text-warning">
-                                    <i className="fas fa-calendar me-1"></i>
-                                    {new Date(t.deadline).toLocaleDateString()}
-                                  </small>
+
+            <div className="card shadow-lg mb-4">
+              <div className="card-header bg-light">
+                <ul className="nav nav-tabs card-header-tabs" role="tablist">
+                  {["TECHNIQUE", "ADMINISTRATIF", "FINANCIER"].map((folder) => {
+                    const folderInfo = getFolderInfo(folder)
+                    const stats = getFolderStats(folder)
+                    return (
+                      <li className="nav-item" key={folder}>
+                        <button
+                          type="button"
+                          className={`nav-link ${activeFolder === folder ? "active" : ""}`}
+                          onClick={() => {
+                            setActiveFolder(folder)
+                            setNewTask((prev) => ({ ...prev, typeDossier: folder }))
+                            setNewDocument((prev) => ({ ...prev, typeDossier: folder }))
+                          }}
+                          style={{ color: folderInfo.color }}
+                        >
+                          <i className={`${folderInfo.icon} me-2`}></i>
+                          {folderInfo.name}
+                          <span className="badge bg-secondary ms-2">{stats.documents + stats.tasks}</span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+              <div className="card-body">
+                {["TECHNIQUE", "ADMINISTRATIF", "FINANCIER"].map((folder) => {
+                  if (activeFolder !== folder) return null
+
+                  const folderInfo = getFolderInfo(folder)
+                  const folderTasks = getTasksByFolder(folder)
+                  const folderDocuments = getDocumentsByFolder(folder)
+
+                  return (
+                    <div key={folder}>
+                      <div className="row g-4">
+                        <div className="col-lg-6">
+                          <div className="shadow-sm rounded-3 border p-4 h-100">
+                            <div className="d-flex align-items-center mb-3">
+                              <div
+                                className="rounded-circle d-flex align-items-center justify-content-center me-3"
+                                style={{ width: "40px", height: "40px", backgroundColor: folderInfo.color }}
+                              >
+                                <i className="fas fa-tasks text-white"></i>
+                              </div>
+                              <h5 className="mb-0" style={{ color: folderInfo.color, fontFamily: "corbel" }}>
+                                Tâches {folderInfo.name}
+                              </h5>
+                            </div>
+                            <div className="bg-light p-3 rounded mb-3">
+                              <h6 className="mb-3" style={{ color: folderInfo.color }}>
+                                <i className="fas fa-plus-circle me-2"></i>
+                                Ajouter une tâche {folderInfo.name.toLowerCase()}
+                              </h6>
+                              <div className="mb-2">
+                                <input
+                                  type="text"
+                                  className="form-control mb-2"
+                                  placeholder="Titre de la tâche"
+                                  name="titre"
+                                  value={newTask.titre}
+                                  onChange={handleTaskInputChange}
+                                />
+                              </div>
+                              <div className="mb-2">
+                                <input
+                                  type="text"
+                                  className="form-control mb-2"
+                                  placeholder="Détails de la tâche"
+                                  name="detail"
+                                  value={newTask.detail}
+                                  onChange={handleTaskInputChange}
+                                />
+                              </div>
+                              <div className="row g-2 mb-2">
+                                <div className="col-6">
+                                  <input
+                                    type="date"
+                                    className="form-control"
+                                    name="deadline"
+                                    value={newTask.deadline}
+                                    onChange={handleTaskInputChange}
+                                  />
+                                </div>
+                                <div className="col-6">
+                                  <input
+                                    type="text"
+                                    className="form-control"
+                                    placeholder="Assignée à"
+                                    name="assignedPerson"
+                                    value={newTask.assignedPerson}
+                                    onChange={handleTaskInputChange}
+                                  />
                                 </div>
                               </div>
                               <button
-                                className="btn btn-sm btn-outline-danger ms-2"
-                                onClick={() => handleRemoveTache(t.id)}
-                                title="Supprimer"
+                                type="button"
+                                className="btn w-100"
+                                style={{ backgroundColor: folderInfo.color, color: "white" }}
+                                onClick={() => {
+                                  setNewTask((prev) => ({ ...prev, typeDossier: folder }))
+                                  handleAddTache()
+                                }}
                               >
-                                <i className="fas fa-times"></i>
+                                <i className="fas fa-plus me-2"></i>
+                                Ajouter Tâche {folderInfo.name}
                               </button>
                             </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="col-lg-6">
-                <div className="shadow-lg rounded-3 border p-4 h-100">
-                  <div className="d-flex align-items-center mb-3">
-                    <div
-                      className="rounded-circle d-flex align-items-center justify-content-center me-3"
-                      style={{ width: "40px", height: "40px", backgroundColor: "#ffc107" }}
-                    >
-                      <i className="fas fa-file text-white"></i>
-                    </div>
-                    <h5 className="mb-0" style={{ color: "#ffc107", fontFamily: "corbel" }}>
-                      Gestion des Documents
-                    </h5>
-                  </div>
-                  <div className="bg-light p-3 rounded mb-3">
-                    <h6 className="text-warning mb-3">
-                      <i className="fas fa-cloud-upload-alt me-2"></i>
-                      Ajouter un document
-                    </h6>
-                    <div className="mb-2">
-                      <input
-                        type="text"
-                        className="form-control mb-2"
-                        placeholder="Nom du fichier"
-                        name="namefile"
-                        value={newDocument.namefile}
-                        onChange={handleDocumentInputChange}
-                      />
-                    </div>
-                    <div className="mb-2">
-                      <input
-                        type="text"
-                        className="form-control mb-2"
-                        placeholder="Description du document"
-                        name="description"
-                        value={newDocument.description}
-                        onChange={handleDocumentInputChange}
-                      />
-                    </div>
-                    <div className="mb-2">
-                      <select
-                        className="form-control mb-2"
-                        name="type"
-                        value={newDocument.type}
-                        onChange={handleDocumentInputChange}
-                      >
-                        <option value="PDF">PDF</option>
-                        <option value="DOCX">DOCX</option>
-                        <option value="XLSX">XLSX</option>
-                        <option value="PPT">PPT</option>
-                      </select>
-                    </div>
-                    <div className="mb-2">
-                      <input
-                        type="file"
-                        className="form-control mb-2"
-                        name="file"
-                        onChange={handleDocumentInputChange}
-                      />
-                    </div>
-                    {newDocument.cheminFichier && (
-                      <p className="text-muted small mt-1">Fichier sélectionné: {newDocument.cheminFichier}</p>
-                    )}
-                    <button type="button" className="btn btn-warning w-100" onClick={handleAddDocument}>
-                      <i className="fas fa-upload me-2"></i>
-                      Ajouter Document
-                    </button>
-                  </div>
-                  {offreFormData.documents.length > 0 && (
-                    <div style={{ maxHeight: "400px", overflowY: "auto" }}>
-                      <h6 className="text-info mb-3">
-                        <i className="fas fa-folder-open me-2"></i>
-                        Documents ({offreFormData.documents.length})
-                      </h6>
-                      {offreFormData.documents.map((f) => (
-                        <div key={f.id} className="card mb-2 border-warning">
-                          <div className="card-body p-3">
-                            <div className="d-flex justify-content-between align-items-start">
-                              <div className="flex-grow-1">
-                                <h6 className="card-title text-warning mb-1">
-                                  <i className="fas fa-file-alt me-2"></i>
-                                  {f.namefile}
+                            {folderTasks.length > 0 && (
+                              <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+                                <h6 className="text-success mb-3">
+                                  <i className="fas fa-list me-2"></i>
+                                  Tâches {folderInfo.name} ({folderTasks.length})
                                 </h6>
-                                <p className="card-text text-muted small mb-1">{f.description}</p>
-                                <small className="badge bg-secondary">{f.type || "Document"}</small>
-                                {f.cheminFichier && !f.file && (
-                                  <a
-                                    href={`http://localhost:8080/api/offres/documents/${f.cheminFichier}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="ms-2 text-info"
-                                  >
-                                    Télécharger
-                                  </a>
-                                )}
+                                {folderTasks.map((t) => (
+                                  <div key={t.id} className="card mb-2" style={{ borderColor: folderInfo.color }}>
+                                    <div className="card-body p-3">
+                                      <div className="d-flex justify-content-between align-items-start">
+                                        <div className="flex-grow-1">
+                                          <h6 className="card-title mb-1" style={{ color: folderInfo.color }}>
+                                            {t.titre}
+                                          </h6>
+                                          <p className="card-text text-muted small mb-1">{t.detail}</p>
+                                          <div className="d-flex justify-content-between">
+                                            <small className="text-success">
+                                              <i className="fas fa-user me-1"></i>
+                                              {t.assignedPerson}
+                                            </small>
+                                            <small className="text-warning">
+                                              <i className="fas fa-calendar me-1"></i>
+                                              {new Date(t.deadline).toLocaleDateString()}
+                                            </small>
+                                          </div>
+                                        </div>
+                                        <button
+                                          className="btn btn-sm btn-outline-danger ms-2"
+                                          onClick={() => handleRemoveTache(t.id)}
+                                          title="Supprimer"
+                                        >
+                                          <i className="fas fa-times"></i>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                              <button
-                                className="btn btn-sm btn-outline-danger ms-2"
-                                onClick={() => handleRemoveDocument(f.id)}
-                                title="Supprimer"
-                              >
-                                <i className="fas fa-times"></i>
-                              </button>
-                            </div>
+                            )}
                           </div>
                         </div>
-                      ))}
+                        <div className="col-lg-6">
+                          <div className="shadow-sm rounded-3 border p-4 h-100">
+                            <div className="d-flex align-items-center mb-3">
+                              <div
+                                className="rounded-circle d-flex align-items-center justify-content-center me-3"
+                                style={{ width: "40px", height: "40px", backgroundColor: folderInfo.color }}
+                              >
+                                <i className="fas fa-file text-white"></i>
+                              </div>
+                              <h5 className="mb-0" style={{ color: folderInfo.color, fontFamily: "corbel" }}>
+                                Documents {folderInfo.name}
+                              </h5>
+                            </div>
+                            <div className="bg-light p-3 rounded mb-3">
+                              <h6 className="mb-3" style={{ color: folderInfo.color }}>
+                                <i className="fas fa-cloud-upload-alt me-2"></i>
+                                Ajouter un document {folderInfo.name.toLowerCase()}
+                              </h6>
+                              <div className="mb-2">
+                                <input
+                                  type="text"
+                                  className="form-control mb-2"
+                                  placeholder="Nom du fichier"
+                                  name="namefile"
+                                  value={newDocument.namefile}
+                                  onChange={handleDocumentInputChange}
+                                />
+                              </div>
+                              <div className="mb-2">
+                                <input
+                                  type="text"
+                                  className="form-control mb-2"
+                                  placeholder="Description du document"
+                                  name="description"
+                                  value={newDocument.description}
+                                  onChange={handleDocumentInputChange}
+                                />
+                              </div>
+                              <div className="mb-2">
+                                <select
+                                  className="form-control mb-2"
+                                  name="type"
+                                  value={newDocument.type}
+                                  onChange={handleDocumentInputChange}
+                                >
+                                  <option value="PDF">PDF</option>
+                                  <option value="DOCX">DOCX</option>
+                                  <option value="XLSX">XLSX</option>
+                                  <option value="PPT">PPT</option>
+                                </select>
+                              </div>
+                              <div className="mb-2">
+                                <input
+                                  type="file"
+                                  className="form-control mb-2"
+                                  name="file"
+                                  onChange={handleDocumentInputChange}
+                                />
+                              </div>
+                              {newDocument.cheminFichier && (
+                                <p className="text-muted small mt-1">
+                                  Fichier sélectionné: {newDocument.cheminFichier}
+                                </p>
+                              )}
+                              <button
+                                type="button"
+                                className="btn w-100"
+                                style={{ backgroundColor: folderInfo.color, color: "white" }}
+                                onClick={() => {
+                                  setNewDocument((prev) => ({ ...prev, typeDossier: folder }))
+                                  handleAddDocument()
+                                }}
+                              >
+                                <i className="fas fa-upload me-2"></i>
+                                Ajouter Document {folderInfo.name}
+                              </button>
+                            </div>
+                            {folderDocuments.length > 0 && (
+                              <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+                                <h6 className="text-info mb-3">
+                                  <i className="fas fa-folder-open me-2"></i>
+                                  Documents {folderInfo.name} ({folderDocuments.length})
+                                </h6>
+                                {folderDocuments.map((f) => (
+                                  <div key={f.id} className="card mb-2" style={{ borderColor: folderInfo.color }}>
+                                    <div className="card-body p-3">
+                                      <div className="d-flex justify-content-between align-items-start">
+                                        <div className="flex-grow-1">
+                                          <h6 className="card-title mb-1" style={{ color: folderInfo.color }}>
+                                            <i className="fas fa-file-alt me-2"></i>
+                                            {f.namefile}
+                                          </h6>
+                                          <p className="card-text text-muted small mb-1">{f.description}</p>
+                                          <small className="badge bg-secondary">{f.type || "Document"}</small>
+                                          {f.cheminFichier && !f.file && (
+                                            <a
+                                              href={`http://localhost:8080/api/offres/documents/${f.cheminFichier}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="ms-2 text-info"
+                                            >
+                                              Télécharger
+                                            </a>
+                                          )}
+                                        </div>
+                                        <button
+                                          className="btn btn-sm btn-outline-danger ms-2"
+                                          onClick={() => handleRemoveDocument(f.id)}
+                                          title="Supprimer"
+                                        >
+                                          <i className="fas fa-times"></i>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                </div>
+                  )
+                })}
               </div>
             </div>
+
             <div className="text-center mt-4">
               <button type="submit" className="btn btn-success btn-lg px-5" disabled={loading}>
                 {loading ? (
@@ -1369,6 +1678,7 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
         )}
       </div>
 
+      {/* ... existing summary modal code ... */}
       {showSummaryModal && (
         <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
           <div className="modal-dialog modal-dialog-centered modal-lg">
@@ -1395,9 +1705,6 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
                         <strong style={{ color: "black" }}>Budget:</strong>{" "}
                         <span style={{ color: "green" }}>{offreFormData.budget} MAD</span>
                       </p>
-
-
-
                     </div>
                     <div className="col-md-6">
                       <p>
@@ -1409,73 +1716,82 @@ function Offre({ initialOpportunity = null, onCloseOffreCreation }) {
                             "Non spécifié"}
                         </span>
                       </p>
-
                     </div>
                     <div className="col-12">
                       <p>
                         <strong style={{ color: "black" }}>Détails:</strong>{" "}
-                        <span style={{ color: "green" }}>
-                          {offreFormData.detail || "Non spécifié"}
-                        </span>
+                        <span style={{ color: "green" }}>{offreFormData.detail || "Non spécifié"}</span>
                       </p>
-
                     </div>
                   </div>
                 </div>
-                <div className="mb-4 p-3 border rounded bg-light">
-                  <h5 className="text-info mb-3">
-                    <i className="fas fa-tasks me-2"></i>Tâches ({offreFormData.taches.length})
-                  </h5>
-                  {offreFormData.taches.length > 0 ? (
-                    <ul className="list-group list-group-flush">
-                      {offreFormData.taches.map((tache, index) => (
-                        <li
-                          key={tache.id || index}
-                          className="list-group-item d-flex justify-content-between align-items-center text-black"
-                        >
-                          <div>
-                            <strong style={{ color: "black" }}>{tache.titre}</strong> -{" "}
-                            <span style={{ color: "green" }}>{tache.detail}</span>
-                            <br />
-                            <small className="text-muted">
-                              Assigné à: {tache.assignedPerson} | Date limite:{" "}
-                              {new Date(tache.deadline).toLocaleDateString()}
-                            </small>
-                          </div>
 
-                          {tache.checked && <span className="badge bg-success">Terminée</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-muted">Aucune tâche ajoutée.</p>
-                  )}
-                </div>
-                <div className="mb-4 p-3 border rounded bg-light">
-                  <h5 className="text-warning mb-3">
-                    <i className="fas fa-file-alt me-2"></i>Documents ({offreFormData.documents.length})
-                  </h5>
-                  {offreFormData.documents.length > 0 ? (
-                    <ul className="list-group list-group-flush">
-                      {offreFormData.documents.map((doc, index) => (
-                        <li
-                          key={doc.id || index}
-                          className="list-group-item d-flex justify-content-between align-items-center text-black"
-                        >
-                          <div>
-                            <strong style={{ color: "black" }}>{doc.namefile}</strong>{" "}
-                            (<span style={{ color: "green" }}>{doc.type}</span>)
-                            <br />
-                            <small className="text-muted">{doc.description}</small>
-                          </div>
+                {["TECHNIQUE", "ADMINISTRATIF", "FINANCIER"].map((folder) => {
+                  const folderInfo = getFolderInfo(folder)
+                  const folderTasks = getTasksByFolder(folder)
+                  const folderDocuments = getDocumentsByFolder(folder)
 
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-muted">Aucun document ajouté.</p>
-                  )}
-                </div>
+                  if (folderTasks.length === 0 && folderDocuments.length === 0) return null
+
+                  return (
+                    <div key={folder} className="mb-4 p-3 border rounded bg-light">
+                      <h5 className="mb-3" style={{ color: folderInfo.color }}>
+                        <i className={`${folderInfo.icon} me-2`}></i>
+                        Dossier {folderInfo.name}
+                      </h5>
+
+                      {folderTasks.length > 0 && (
+                        <div className="mb-3">
+                          <h6 className="text-info">
+                            <i className="fas fa-tasks me-2"></i>Tâches ({folderTasks.length})
+                          </h6>
+                          <ul className="list-group list-group-flush">
+                            {folderTasks.map((tache, index) => (
+                              <li
+                                key={tache.id || index}
+                                className="list-group-item d-flex justify-content-between align-items-center text-black"
+                              >
+                                <div>
+                                  <strong style={{ color: "black" }}>{tache.titre}</strong> -{" "}
+                                  <span style={{ color: "green" }}>{tache.detail}</span>
+                                  <br />
+                                  <small className="text-muted">
+                                    Assigné à: {tache.assignedPerson} | Date limite:{" "}
+                                    {new Date(tache.deadline).toLocaleDateString()}
+                                  </small>
+                                </div>
+                                {tache.checked && <span className="badge bg-success">Terminée</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {folderDocuments.length > 0 && (
+                        <div className="mb-3">
+                          <h6 className="text-warning">
+                            <i className="fas fa-file-alt me-2"></i>Documents ({folderDocuments.length})
+                          </h6>
+                          <ul className="list-group list-group-flush">
+                            {folderDocuments.map((doc, index) => (
+                              <li
+                                key={doc.id || index}
+                                className="list-group-item d-flex justify-content-between align-items-center text-black"
+                              >
+                                <div>
+                                  <strong style={{ color: "black" }}>{doc.namefile}</strong> (
+                                  <span style={{ color: "green" }}>{doc.type}</span>)
+                                  <br />
+                                  <small className="text-muted">{doc.description}</small>
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={() => setShowSummaryModal(false)}>

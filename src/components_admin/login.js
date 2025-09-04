@@ -129,19 +129,7 @@ function Login() {
                     </button>
                   </div>
                 </form>
-                <div className="mt-4 text-center">
-                  <small className="text-muted">
-                    <strong>Comptes de test :</strong>
-                    <br />
-                    <span className="text-success">admin/admin123 (Administrateur - Accès complet)</span>
-                    <br />
-                    user1/password123 (Clients & Opportunités)
-                    <br />
-                    user2/password123 (Offres uniquement)
-                    <br />
-                    user3/password123 (Contrats uniquement)
-                  </small>
-                </div>
+
               </div>
             </div>
           </div>

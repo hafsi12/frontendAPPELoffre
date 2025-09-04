@@ -352,6 +352,27 @@ function Opportunite({ onNavigateToOffre = null }) {
     setShowConfirmNoGo(false)
   }
 
+  const handleDocumentDownload = async (doc) => {
+    try {
+      const response = await api.get(`/opportunites/documents/${doc.path}`, {
+        responseType: "blob",
+      })
+
+      const blob = response.data
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `${doc.title}.${doc.fileType.toLowerCase()}`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      console.error("Erreur lors du téléchargement:", error)
+      setError("Erreur lors du téléchargement du document")
+    }
+  }
+
   if (!canView) {
     return (
       <div className="container mt-5">
@@ -381,14 +402,19 @@ function Opportunite({ onNavigateToOffre = null }) {
           <h2>Étude de faisabilité de l'opportunité</h2>
           {canModify ? (
             selectedOpportunity.etat?.statut === "GO" ? (
-              <button className="btn btn-success" onClick={() => {
-                if (onNavigateToOffre) {
-                  onNavigateToOffre(selectedOpportunity);
-                } else {
-                  // Show alert or handle navigation within the same page
-                  alert(`Navigation vers le formulaire d'offre pour l'opportunité ID: ${selectedOpportunity.idOpp}. Veuillez configurer la navigation dans votre application principale.`);
-                }
-              }}>
+              <button
+                className="btn btn-success"
+                onClick={() => {
+                  if (onNavigateToOffre) {
+                    onNavigateToOffre(selectedOpportunity)
+                  } else {
+                    // Show alert or handle navigation within the same page
+                    alert(
+                      `Navigation vers le formulaire d'offre pour l'opportunité ID: ${selectedOpportunity.idOpp}. Veuillez configurer la navigation dans votre application principale.`,
+                    )
+                  }
+                }}
+              >
                 + Offre
               </button>
             ) : selectedOpportunity.etat?.statut === "NO_GO" ? (
@@ -494,17 +520,20 @@ function Opportunite({ onNavigateToOffre = null }) {
                 <ul className="mb-0">
                   {selectedOpportunity.documents?.length > 0 ? (
                     selectedOpportunity.documents.map((doc, index) => (
-                      <li key={`doc-${doc.id || index}`}>
-                        <a
-                          href={`http://localhost:8080/api/opportunites/documents/${doc.path}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-black font-semibold"
-                          style={{ color: 'black', fontWeight: 600 }}
+                      <li key={`doc-${doc.id || index}`} className="mb-2">
+                        <button
+                          onClick={() => handleDocumentDownload(doc)}
+                          className="btn btn-link p-0 text-start text-decoration-none"
+                          style={{ color: "black", fontWeight: 600 }}
+                          title={`Télécharger ${doc.title}`}
                         >
                           📄 {doc.title} ({doc.fileType})
-                        </a>
-                        {doc.description && <p className="text-muted small mb-0" style={{ color: 'black' }}>{doc.description}</p>}
+                        </button>
+                        {doc.description && (
+                          <p className="text-muted small mb-0" style={{ color: "black" }}>
+                            {doc.description}
+                          </p>
+                        )}
                       </li>
                     ))
                   ) : (
@@ -558,7 +587,6 @@ function Opportunite({ onNavigateToOffre = null }) {
           )}
         </div>
       </div>
-
 
       {loading ? (
         <div className="text-center py-5">
@@ -703,12 +731,16 @@ function Opportunite({ onNavigateToOffre = null }) {
             />
 
             <div className="card p-3">
-              <h5  style={{ color: "#000"}} >Documents (RC ,CPS , FICHE DE SYNTHESE) </h5>
+              <h5 style={{ color: "#000" }}>Documents (RC ,CPS , FICHE DE SYNTHESE)</h5>
               {formData.documents.map((doc) => (
                 <div key={`doc-form-${doc.id}`} className="d-flex justify-content-between align-items-center mb-2">
                   <div>
-                    <strong g style={{ color: "#000", fontWeight: 700 }} className="text-gray-800 font-semibold">{doc.title}</strong> <p  style={{ color: "#6c757d" }}>({doc.fileType})</p>
-                    {doc.description && <p className="text-gray-600 small mb-0"  style={{ color: "#6c757d" }}>{doc.description}</p>}
+                    <strong style={{ color: "#000", fontWeight: 700 }}>{doc.title}</strong> ({doc.fileType})
+                    {doc.description && (
+                      <p className="small mb-0" style={{ color: "#6c757d" }}>
+                        {doc.description}
+                      </p>
+                    )}
                   </div>
                   <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveDocument(doc.id)}>
                     <i className="fa-solid fa-trash"></i>
@@ -826,15 +858,19 @@ function Opportunite({ onNavigateToOffre = null }) {
             <div className="card p-3">
               <h5 style={{ color: "#000" }}>Documents (RC ,CPS , FICHE DE SYNTHESE)</h5>
               {formData.documents.map((doc) => (
-                              <div key={`doc-form-${doc.id}`} className="d-flex justify-content-between align-items-center mb-2">
-                                <div>
-                                  <strong style={{ color: "#000", fontWeight: 700 }}>{doc.title}</strong> ({doc.fileType})
-                                  {doc.description && <p className="small mb-0" style={{ color: "#6c757d" }}>{doc.description}</p>}
-                                </div>
-                                <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveDocument(doc.id)}>
-                                  <i className="fa-solid fa-trash"></i>
-                                </button>
-                              </div>
+                <div key={`doc-form-${doc.id}`} className="d-flex justify-content-between align-items-center mb-2">
+                  <div>
+                    <strong style={{ color: "#000", fontWeight: 700 }}>{doc.title}</strong> ({doc.fileType})
+                    {doc.description && (
+                      <p className="small mb-0" style={{ color: "#6c757d" }}>
+                        {doc.description}
+                      </p>
+                    )}
+                  </div>
+                  <button type="button" className="btn btn-sm btn-danger" onClick={() => handleRemoveDocument(doc.id)}>
+                    <i className="fa-solid fa-trash"></i>
+                  </button>
+                </div>
               ))}
 
               <div className="mt-3">
@@ -896,7 +932,9 @@ function Opportunite({ onNavigateToOffre = null }) {
       {activeModalId === "archiveModal" && canModify && selectedOpportunity && (
         <Modal title="Archiver Opportunité" color="orange" onClose={() => setActiveModalId(null)}>
           <p>Confirmer l'archivage de l'opportunité "{selectedOpportunity.projectName}" ?</p>
-          <p className="text-muted">Cette opportunité sera déplacée dans les archives et pourra être restaurée ultérieurement.</p>
+          <p className="text-muted">
+            Cette opportunité sera déplacée dans les archives et pourra être restaurée ultérieurement.
+          </p>
           <button className="btn btn-warning" onClick={() => handleArchiveOpportunity(selectedOpportunity.idOpp)}>
             Oui, archiver
           </button>

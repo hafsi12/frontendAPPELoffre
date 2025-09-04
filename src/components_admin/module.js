@@ -592,10 +592,10 @@ const ContractManagement = () => {
     }
   }
 
-  const handleDownloadDocument = async (document) => {
+  const handleDownloadDocument = async (doc) => {
     try {
-      if (document.id) {
-        const response = await api.get(`/documents/${document.id}/download`, { responseType: "blob" })
+      if (doc.id) {
+        const response = await api.get(`/documents/${doc.id}/download`, { responseType: "blob" })
         if (response.status !== 200) {
           throw new Error("Erreur lors du téléchargement du document")
         }
@@ -603,7 +603,7 @@ const ContractManagement = () => {
         const url = window.URL.createObjectURL(blob)
         const link = document.createElement("a")
         link.href = url
-        link.download = document.namefile || `document_${document.id}`
+        link.download = doc.namefile || `document_${doc.id}`
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
@@ -741,11 +741,7 @@ const ContractManagement = () => {
                 <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
                   PDF
                 </th>
-                {canModify && (
-                  <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
-                    EMAIL
-                  </th>
-                )}
+                {/* Removed EMAIL column header */}
                 <th className="text-center" style={{ color: "rgb(165, 168, 164)" }}>
                   LIVRABLES
                 </th>
@@ -837,21 +833,7 @@ const ContractManagement = () => {
                         <i className="fas fa-file-pdf text-danger"></i>
                       </button>
                     </td>
-                    {canModify && (
-                      <td className="text-center">
-                        <button
-                          className="btn btn-sm rounded-4"
-                          style={getButtonStyle("email")}
-                          onMouseEnter={() => setHoveredButton("email")}
-                          onMouseLeave={() => setHoveredButton(null)}
-                          onClick={() => handleGenerateAndSendPDF(contrat)}
-                          disabled={loading || !contrat.signed}
-                          title={!contrat.signed ? "Le contrat doit être signé avant l'envoi" : "Envoyer par email"}
-                        >
-                          {getEmailStatusIcon(contrat.id)}
-                        </button>
-                      </td>
-                    )}
+                    {/* Removed EMAIL column cell with email button */}
                     <td className="text-center">
                       <button
                         className="btn btn-sm rounded-4"
@@ -879,7 +861,7 @@ const ContractManagement = () => {
                   </tr>
                   {expandedRows.includes(`row-${contrat.id}`) && (
                     <tr key={`expanded-${contrat.id}`}>
-                      <td colSpan={canModify ? 11 : 9}>
+                      <td colSpan={canModify ? 10 : 8}>
                         <div className="p-3 rounded-3 border" style={{ backgroundColor: "#f8f9fa" }}>
                           <div className="row">
                             <div className="col-md-6">
@@ -1193,9 +1175,7 @@ const ContractManagement = () => {
                           className="alert alert-info"
                           style={{ backgroundColor: "#f8f9fa", border: "1px solid #dee2e6" }}
                         >
-                          <h6 style={{ color: "#000000", fontWeight: "bold" }}>
-                            📊 Résumé de l'Offre Sélectionnée:
-                          </h6>
+                          <h6 style={{ color: "#000000", fontWeight: "bold" }}>📊 Résumé de l'Offre Sélectionnée:</h6>
 
                           <p style={{ margin: "5px 0" }}>
                             <strong style={{ color: "black" }}>Projet:</strong>{" "}
@@ -1211,18 +1191,13 @@ const ContractManagement = () => {
 
                           <p style={{ margin: "5px 0" }}>
                             <strong style={{ color: "black" }}>Tâches:</strong>{" "}
-                            <span style={{ color: "green" }}>
-                              {safeGet(selectedOffre, "taches.length", 0)}
-                            </span>
+                            <span style={{ color: "green" }}>{safeGet(selectedOffre, "taches.length", 0)}</span>
                           </p>
 
                           <p style={{ margin: "5px 0" }}>
                             <strong style={{ color: "black" }}>Documents:</strong>{" "}
-                            <span style={{ color: "green" }}>
-                              {safeGet(selectedOffre, "documents.length", 0)}
-                            </span>
+                            <span style={{ color: "green" }}>{safeGet(selectedOffre, "documents.length", 0)}</span>
                           </p>
-
                         </div>
                       </div>
                     )}

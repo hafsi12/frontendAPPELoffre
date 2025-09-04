@@ -215,20 +215,30 @@ const ClientContacts = ({ clientId }) => {
             </button>
           )}
           {contacts.length > 0 ? (
-            <ul className="list-group">
+            <div className="row">
               {contacts.map((contact) => (
-                <li key={contact.id} className="list-group-item">
-                  <div>
-                    <strong style={{ color: "green" }}>{contact.name}</strong>
+                <div key={contact.id} className="col-md-6 mb-3">
+                  <div className="card h-100 border-0 shadow-sm">
+                    <div className="card-body">
+                      <h6 className="card-title fw-bold" style={{ color: "green" }}>{contact.name}</h6>
+                      <p className="card-text mb-1" style={{ color: "black" }}>
+                        <small style={{ color: "green" }}>Poste:</small> {contact.position || '-'}
+                      </p>
+                      <p className="card-text mb-1" style={{ color: "black" }}>
+                        <small style={{ color: "green" }}>Email:</small> {contact.email}
+                      </p>
+                      <p className="card-text mb-0" style={{ color: "black" }}>
+                        <small style={{ color: "green" }}>Téléphone:</small> {contact.phone || '-'}
+                      </p>
+                    </div>
                   </div>
-                  <div>{contact.position}</div>
-                  <div>{contact.email}</div>
-                  <div>{contact.phone}</div>
-                </li>
+                </div>
               ))}
-            </ul>
+            </div>
           ) : (
-            <p>Aucun contact associé à ce client</p>
+            <div className="text-center py-4">
+              <p className="text-muted">Aucun contact associé à ce client</p>
+            </div>
           )}
         </>
       ) : (
@@ -250,6 +260,7 @@ export default function Clients() {
   const [archivedView, setArchivedView] = useState(false)
   const [activeModalId, setActiveModalId] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null)
+  const [searchTerm, setSearchTerm] = useState("")
   const [formData, setFormData] = useState({
     id: null,
     name: "",
@@ -350,13 +361,32 @@ export default function Clients() {
     }
   }
 
-  if (loading) return <div className="text-center my-5">Chargement en cours...</div>
+  // Filtrer les clients selon le terme de recherche
+  const filteredClients = clients.filter(client =>
+    client.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    client.secteur?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    client.country?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    client.city?.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  if (loading) {
+    return (
+      <div className="d-flex justify-content-center align-items-center" style={{ minHeight: "400px" }}>
+        <div className="text-center">
+          <div className="spinner-border" style={{ color: "rgba(45, 79, 39, 0.77)" }} role="status">
+            <span className="visually-hidden">Chargement...</span>
+          </div>
+          <p className="text-muted mt-3">Chargement des clients...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="d-flex flex-column p-3 align-items-center" style={{ backgroundColor: "white" }}>
-      {/* Header */}
+      {/* Header - Couleurs originales conservées */}
       <div
-        className="rounded-3 p-3 d-flex shadow-lg justify-content-between"
+        className="rounded-3 p-3 d-flex shadow-lg justify-content-between align-items-center"
         style={{
           background: "linear-gradient(to right,rgba(4, 4, 4, 0.77),rgba(4, 4, 4, 0.77), rgba(45, 79, 39, 0.77))",
           width: "95%",
@@ -364,7 +394,15 @@ export default function Clients() {
           zIndex: 1,
         }}
       >
-        <h4 style={{ color: "white", fontFamily: "corbel" }}>Gestion des Clients {!canModify && "(Lecture seule)"}</h4>
+        <div>
+          <h4 style={{ color: "white", fontFamily: "corbel", marginBottom: "4px" }}>
+            Gestion des Clients {!canModify && "(Lecture seule)"}
+          </h4>
+          <p style={{ color: "rgba(255,255,255,0.8)", margin: 0, fontSize: "14px" }}>
+            {filteredClients.length} client{filteredClients.length > 1 ? 's' : ''}
+            {archivedView ? ' archivé' : ' actif'}{filteredClients.length > 1 ? 's' : ''}
+          </p>
+        </div>
         <div>
           {canModify && (
             <button className="btn btn-light me-2" onClick={() => toggleModal("addClient")}>
@@ -377,7 +415,7 @@ export default function Clients() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Container principal */}
       <div
         className="d-flex p-3 flex-column shadow-lg rounded-3 pt-5 w-100 border"
         style={{
@@ -386,74 +424,182 @@ export default function Clients() {
           zIndex: 0,
         }}
       >
-        <div className="p-1 pt-3">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Client</th>
-                <th>Ville / Pays</th>
-                <th>Adresse</th>
-                <th>Site Web</th>
-                <th>Téléphone fixe</th>
-                <th>Secteur</th>
-                <th>Contacts</th>
-                <th>Détails</th>
-                {canModify && <th>Modifier</th>}
-                {canModify && <th>Archiver</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {clients.map((client) => (
-                <tr key={client.idClient}>
-                  <td><span className="badge bg-dark">{client.clientCode || "-"}</span></td>
-                  <td>{client.name}</td>
-                  <td>
-                    {client.city ? client.city : "-"}
-                    {client.city && client.country ? " / " : ""}
-                    {client.country ? client.country : ""}
-                  </td>
-                  <td>{client.address || "-"}</td>
-                  <td>
-                    {client.webSite ? (
-                      <a href={client.webSite} target="_blank" rel="noopener noreferrer">
-                        {client.webSite}
-                      </a>
-                    ) : (
-                      "-"
-                    )}
-                  </td>
-                  <td>{client.landline || "-"}</td>
-                  <td>{client.secteur || "-"}</td>
-                  <td className="text-center">
-                    <button className="btn btn-sm" onClick={() => toggleModal("contacts", client)}>
-                      Voir
-                    </button>
-                  </td>
-                  <td className="text-center">
-                    <button className="btn btn-sm" onClick={() => toggleModal("details", client)}>
-                      🔍
-                    </button>
-                  </td>
-                  {canModify && (
-                    <td className="text-center">
-                      <button className="btn btn-sm" onClick={() => toggleModal("editClient", client)}>
-                        ✏️
-                      </button>
-                    </td>
-                  )}
-                  {canModify && (
-                    <td className="text-center">
-                      <button className="btn btn-sm text-danger" onClick={() => toggleModal("archiveClient", client)}>
-                        {client.archived ? "🗄️" : "🗃️"}
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Barre de recherche */}
+        <div className="row mb-4 pt-3">
+          <div className="col-md-6">
+            <div className="input-group">
+              <span className="input-group-text bg-white border-end-0">
+                🔍
+              </span>
+              <input
+                type="text"
+                className="form-control border-start-0"
+                placeholder="Rechercher par nom, secteur, pays ou ville..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+          </div>
         </div>
+
+        {/* Clients Grid - Style professionnel avec cartes */}
+        {filteredClients.length === 0 ? (
+          <div className="text-center py-5">
+            <div className="mb-4" style={{ fontSize: "4rem", color: "rgba(45, 79, 39, 0.3)" }}>
+              🏢
+            </div>
+            <h5 className="text-muted mb-3">
+              {searchTerm ? "Aucun client trouvé" : "Aucun client disponible"}
+            </h5>
+            <p className="text-muted">
+              {searchTerm
+                ? "Essayez de modifier votre recherche"
+                : archivedView
+                  ? "Aucun client archivé pour le moment"
+                  : "Commencez par ajouter votre premier client"
+              }
+            </p>
+            {!searchTerm && !archivedView && canModify && (
+              <button
+                className="btn btn-success mt-3"
+                onClick={() => toggleModal("addClient")}
+              >
+                + Ajouter le premier client
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="row">
+            {filteredClients.map((client) => (
+              <div key={client.idClient} className="col-lg-6 col-xl-4 mb-4">
+                <div className="card h-100 border-0 shadow-sm hover-card">
+                  <div className="card-header bg-white border-0 pb-0">
+                    <div className="d-flex justify-content-between align-items-start">
+                      <div>
+                        <h6 className="card-title mb-1 fw-bold" style={{ color: "rgba(45, 79, 39, 0.9)" }}>
+                          {client.name}
+                        </h6>
+                        <span className="badge bg-dark">{client.clientCode || "N/A"}</span>
+                      </div>
+                      <div className="dropdown">
+                        <button
+                          className="btn btn-sm btn-light"
+                          type="button"
+                          data-bs-toggle="dropdown"
+                        >
+                          ⋮
+                        </button>
+                        <ul className="dropdown-menu dropdown-menu-end">
+                          <li>
+                            <button
+                              className="dropdown-item"
+                              onClick={() => toggleModal("details", client)}
+                            >
+                              👁️ Voir détails
+                            </button>
+                          </li>
+                          <li>
+                            <button
+                              className="dropdown-item"
+                              onClick={() => toggleModal("contacts", client)}
+                            >
+                              👥 Contacts
+                            </button>
+                          </li>
+                          {canModify && (
+                            <>
+                              <li><hr className="dropdown-divider" /></li>
+                              <li>
+                                <button
+                                  className="dropdown-item"
+                                  onClick={() => toggleModal("editClient", client)}
+                                >
+                                  ✏️ Modifier
+                                </button>
+                              </li>
+                              <li>
+                                <button
+                                  className="dropdown-item text-danger"
+                                  onClick={() => toggleModal("archiveClient", client)}
+                                >
+                                  🗃️ {client.archived ? "Désarchiver" : "Archiver"}
+                                </button>
+                              </li>
+                            </>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="card-body pt-2">
+                    <div className="mb-3">
+                      <div className="row g-2">
+                        <div className="col-12">
+                          <div className="d-flex align-items-center mb-2">
+                            <span className="me-2">📍</span>
+                            <small className="text-muted">
+                              {client.city && client.country
+                                ? `${client.city}, ${client.country}`
+                                : client.city || client.country || "Non renseigné"
+                              }
+                            </small>
+                          </div>
+                        </div>
+                        <div className="col-12">
+                          <div className="d-flex align-items-center mb-2">
+                            <span className="me-2">🏭</span>
+                            <small className="text-muted">{client.secteur || "Secteur non précisé"}</small>
+                          </div>
+                        </div>
+                        {client.webSite && (
+                          <div className="col-12">
+                            <div className="d-flex align-items-center mb-2">
+                              <span className="me-2">🌐</span>
+                              <a
+                                href={client.webSite}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-decoration-none small"
+                              >
+                                {client.webSite.length > 25
+                                  ? `${client.webSite.substring(0, 25)}...`
+                                  : client.webSite
+                                }
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                        {client.landline && (
+                          <div className="col-12">
+                            <div className="d-flex align-items-center">
+                              <span className="me-2">📞</span>
+                              <small className="text-muted">{client.landline}</small>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="d-flex gap-2 mt-auto">
+                      <button
+                        className="btn btn-outline-primary btn-sm flex-fill"
+                        onClick={() => toggleModal("contacts", client)}
+                      >
+                        👥 Contacts
+                      </button>
+                      <button
+                        className="btn btn-outline-secondary btn-sm"
+                        onClick={() => toggleModal("details", client)}
+                      >
+                        👁️
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Modals */}
@@ -476,14 +622,22 @@ export default function Clients() {
       )}
 
       {activeModalId === "archiveClient" && canModify && (
-        <Modal title="Archivage" color="red" onClose={() => toggleModal(null)}>
-          <p>Voulez-vous vraiment {selectedClient?.archived ? "désarchiver" : "archiver"} ce client ?</p>
-          <button className="btn btn-danger me-2" onClick={handleArchive}>
-            Oui, {selectedClient?.archived ? "Désarchiver" : "Archiver"}
-          </button>
-          <button className="btn btn-secondary" onClick={() => toggleModal(null)}>
-            Annuler
-          </button>
+        <Modal title="Confirmation" color="red" onClose={() => toggleModal(null)}>
+          <div className="text-center">
+            <div className="mb-3" style={{ fontSize: "3rem", color: "orange" }}>
+              ⚠️
+            </div>
+            <h5>Confirmation requise</h5>
+            <p>Voulez-vous vraiment {selectedClient?.archived ? "désarchiver" : "archiver"} ce client ?</p>
+            <div className="d-flex gap-2 justify-content-center">
+              <button className="btn btn-danger" onClick={handleArchive}>
+                Oui, {selectedClient?.archived ? "Désarchiver" : "Archiver"}
+              </button>
+              <button className="btn btn-secondary" onClick={() => toggleModal(null)}>
+                Annuler
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
 
@@ -570,6 +724,16 @@ export default function Clients() {
           <ClientContacts clientId={selectedClient?.idClient} />
         </Modal>
       )}
+
+      <style jsx>{`
+        .hover-card {
+          transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .hover-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 0.5rem 1rem rgba(45, 79, 39, 0.15) !important;
+        }
+      `}</style>
     </div>
   )
 }

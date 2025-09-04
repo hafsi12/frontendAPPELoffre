@@ -73,24 +73,11 @@ function Admin_Menu() {
       >
         {/* Logo */}
         <div className="mb-3 d-flex justify-content-center">
-          <img src="menu.png" alt="menu Icon" style={{ width: "40px", height: "auto" }} />
+          <img src="logoterragis.png" alt="menu Icon" style={{ width: "120px", height: "auto" }} />
         </div>
 
         {/* Terragis animated text */}
-        <div className="text-center mb-2 animate-terragis">
-          <span
-            style={{
-              fontStyle: "italic",
-              fontWeight: "bold",
-              color: "green",
-              fontSize: "20px",
-              fontFamily: "Segoe UI",
-              display: "inline-block",
-            }}
-          >
-            Terragis
-          </span>
-        </div>
+
 
         <hr className="custom-hr" />
         <br />
