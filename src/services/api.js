@@ -6,9 +6,7 @@ const API_BASE_URL = "http://localhost:8080/api"
 // Créer une instance Axios avec la configuration de base
 const api = axios.create({
   baseURL: API_BASE_URL,
-  headers: {
-    "Content-Type": "application/json",
-  },
+  timeout: 30000, // 30 seconds for large file uploads
 })
 
 // Intercepteur pour ajouter le token d'authentification à chaque requête
@@ -53,5 +51,38 @@ api.interceptors.response.use(
     return Promise.reject(error)
   },
 )
+
+// Method to check if the backend server is accessible
+const checkServerConnection = async () => {
+  try {
+    console.log("🔍 Checking server connection...")
+    const response = await api.get("/offres", { timeout: 5000 })
+    console.log("✅ Server connection successful")
+    return true
+  } catch (error) {
+    console.error("❌ Server connection failed:", error.message)
+    return false
+  }
+}
+
+// Method to handle multipart uploads with proper headers
+const postMultipart = async (url, formData) => {
+  try {
+    console.log("📤 Sending multipart request to:", url)
+    const response = await api.post(url, formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+      timeout: 60000, // 60 seconds for large file uploads
+    })
+    return response
+  } catch (error) {
+    console.error("❌ Multipart upload failed:", error.message)
+    throw error
+  }
+}
+
+api.checkServerConnection = checkServerConnection
+api.postMultipart = postMultipart
 
 export default api
